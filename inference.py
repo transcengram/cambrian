@@ -1,5 +1,8 @@
 import argparse
 import os
+
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+
 import json
 import random
 import re
