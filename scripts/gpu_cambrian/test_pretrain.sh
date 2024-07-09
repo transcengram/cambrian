@@ -1,21 +1,21 @@
 #!/bin/bash
 
-export WANDB_NAME="cambrian-8b-finetune"
+export WANDB_NAME="cambrian-8b-pretrain"
 export WANDB_MODE="offline"
 
-export CKPT_NAME="cambrian-8b-finetune" &&
+export CKPT_NAME="cambrian-8b-pretrain" &&
 export CKPT_DIR="/public/home/seg_test/cambrian/checkpoints/$CKPT_NAME" &&
 
 export IF_TRAIN=True
 
-deepspeed --include=localhost:4,5,7 \
+deepspeed --include=localhost:6 \
+    --master_port 29501 \
     cambrian/train/train_gpu.py \
-    --deepspeed ./scripts/zero3.json \
+    --deepspeed ./scripts/zero2.json \
     --model_name_or_path lmsys/vicuna-7b-v1.5 \
-    --version v1 \
-    --data_path "/public/home/seg_test/crate-alpha-llava/playground/data/LLaVA-Instruct-150K/llava_v1_5_mix665k_clean.json" \
-    --image_folder "/public/home/seg_test/crate-alpha-llava/playground/data/" \
-    --pretrain_mm_mlp_adapter ./checkpoints/cambrian-8b-pretrain/mm_projector.bin \
+    --version plain \
+    --data_path "/public/home/seg_test/crate-alpha-llava/playground/data/LLaVA-Pretrain/blip_laion_cc_sbu_558k.json" \
+    --image_folder "/public/home/seg_test/crate-alpha-llava/playground/data/LLaVA-Pretrain/images" \
     --vision_tower_aux_list '["openai/clip-vit-large-patch14-336"]' \
     --vision_tower_aux_token_len_list '[576, 576, 576, 9216]' \
     --image_token_len 576 \
@@ -29,25 +29,25 @@ deepspeed --include=localhost:4,5,7 \
     --start_of_vision_sampler_layers 0 \
     --stride_of_vision_sampler_layers 3 \
     --mm_projector_type sva \
-    --unfreeze_mm_vision_tower False \
+    --mm_vision_sampler_lr 1e-4 \
+    --tune_mm_mlp_adapter True \
     --mm_vision_select_layer -2 \
     --mm_use_im_start_end False \
     --mm_use_im_patch_token False \
     --image_aspect_ratio pad \
-    --group_by_modality_length True \
     --bf16 True \
     --output_dir $CKPT_DIR \
     --num_train_epochs 1 \
-    --per_device_train_batch_size 8 \
+    --per_device_train_batch_size 16 \
     --per_device_eval_batch_size 4 \
     --gradient_accumulation_steps 1 \
     --evaluation_strategy "no" \
     --save_strategy "steps" \
-    --save_steps 2000 \
+    --save_steps 1000 \
     --save_total_limit 1 \
-    --learning_rate 4e-5 \
+    --learning_rate 1e-3 \
     --weight_decay 0. \
-    --warmup_ratio 0.03 \
+    --warmup_ratio 0.06 \
     --lr_scheduler_type "cosine" \
     --logging_steps 1 \
     --tf32 True \
@@ -57,7 +57,11 @@ deepspeed --include=localhost:4,5,7 \
     --lazy_preprocess True \
     --run_name $CKPT_NAME
 
-#   --report_to wandb \
+#    --report_to wandb \
+#    --tf32 False \
+#    --fsdp "full_shard" \
+#    --fsdp_config fsdp_config_gpu.json
+
 
 #CKPT_PATH=checkpoints/$CKPT_NAME
 CKPT_PATH=$CKPT_DIR
@@ -68,5 +72,5 @@ if [ ! -d "$CKPT_PATH" ]; then
 fi
 #echo "Training finished. Syncing checkpoints to GCS..."
 #gcloud alpha storage rsync $CKPT_PATH gs://us-central2-storage/cambrian/checkpoints/$CKPT_NAME
-echo "Training (Finetune) finished."
+echo "Training finished."
 echo "Syncing finished. Checkpoints are now available at $CKPT_DIR"

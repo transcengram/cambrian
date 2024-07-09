@@ -40,7 +40,8 @@ from cambrian.constants import IGNORE_INDEX, IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TO
 from torch.utils.data import Dataset
 # from cambrian.train.cambrian_trainer import CambrianTrainer
 """"""
-from cambrian.train.llava_trainer import LLaVATrainer as CambrianTrainer
+# from cambrian.train.llava_trainer import LLaVATrainer as CambrianTrainer
+from cambrian.train.cambrian_trainer_gpu import CambrianTrainer
 
 from cambrian import conversation as conversation_lib
 
@@ -258,24 +259,34 @@ def safe_save_model_for_hf_trainer(trainer: transformers.Trainer,
         if trainer.args.local_rank == 0 or trainer.args.local_rank == -1:
             trainer.model.config.save_pretrained(output_dir)
 
-        if not IS_XLA_AVAILABLE:
-            raise NotImplementedError("Only XLA is supported for now.")
+        if IS_XLA_AVAILABLE:
+            import torch_xla.core.xla_model as xm
+            ckpt_prefix = os.path.join(output_dir, "mm_projector")
 
-        import torch_xla.core.xla_model as xm
-        ckpt_prefix = os.path.join(output_dir, "mm_projector")
-        
-        os.makedirs(output_dir, exist_ok=True)
-        rank = xm.get_ordinal()
-        world_size = xm.xrt_world_size()
-        ckpt_path = f'{ckpt_prefix}_rank-{rank:08d}-of-{world_size:08d}.pth'
-        ckpt = {
-            'model': weight_to_save,
-            'shard_metadata': trainer.model.get_shard_metadata()
-        }
-        os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
-        xm.save(ckpt, ckpt_path, master_only=False)
-        print(f'checkpoint saved to {ckpt_path}\n', end='')
-        return
+            os.makedirs(output_dir, exist_ok=True)
+            rank = xm.get_ordinal()
+            world_size = xm.xrt_world_size()
+            ckpt_path = f'{ckpt_prefix}_rank-{rank:08d}-of-{world_size:08d}.pth'
+            ckpt = {
+                'model': weight_to_save,
+                'shard_metadata': trainer.model.get_shard_metadata()
+            }
+            os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
+            xm.save(ckpt, ckpt_path, master_only=False)
+            print(f'checkpoint saved to {ckpt_path}\n', end='')
+            return
+        else:
+            # raise NotImplementedError("Only XLA is supported for now.")
+            current_folder = output_dir.split('/')[-1]
+            parent_folder = os.path.dirname(output_dir)
+            if trainer.args.local_rank == 0 or trainer.args.local_rank == -1:
+                if current_folder.startswith('checkpoint-'):
+                    mm_projector_folder = os.path.join(parent_folder, "mm_projector")
+                    os.makedirs(mm_projector_folder, exist_ok=True)
+                    torch.save(weight_to_save, os.path.join(mm_projector_folder, f'{current_folder}.bin'))
+                else:
+                    torch.save(weight_to_save, os.path.join(output_dir, f'mm_projector.bin'))
+            return
 
     if trainer.deepspeed:
         torch.cuda.synchronize()
@@ -283,6 +294,7 @@ def safe_save_model_for_hf_trainer(trainer: transformers.Trainer,
         return
 
     trainer._save(output_dir)
+
    
 def smart_tokenizer_and_embedding_resize(
     special_tokens_dict: Dict,
@@ -1458,7 +1470,8 @@ def train(attn_implementation=None):
     # TPU Note, the original LLaMA RMSNorm implementation has a bug here, the dtype conversion is not correct. It is ok in GPU but kills TPU training.
     def forward(self, hidden_states):
         input_dtype = hidden_states.dtype
-        hidden_states = hidden_states.to(torch.float32)
+        # hidden_states = hidden_states.to(torch.float32)
+        hidden_states = hidden_states.to(torch.bfloat16)
         variance = hidden_states.pow(2).mean(-1, keepdim=True)
         hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
         output = (self.weight * hidden_states).to(input_dtype)
@@ -1777,7 +1790,6 @@ def train(attn_implementation=None):
                     tokenizer=tokenizer,
                     args=training_args,
                     **data_module)
-    trainer.is_fsdp_enabled = True
     if training_args.train_continue:
         resume_from_checkpoint=training_args.resume_from_checkpoint
         trainer.train(resume_from_checkpoint=resume_from_checkpoint)
