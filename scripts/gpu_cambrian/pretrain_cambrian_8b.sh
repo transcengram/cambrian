@@ -15,7 +15,7 @@ deepspeed --include=localhost:7 \
     --version plain \
     --data_path "/public/home/seg_test/crate-alpha-llava/playground/data/LLaVA-Pretrain/blip_laion_cc_sbu_558k.json" \
     --image_folder "/public/home/seg_test/crate-alpha-llava/playground/data/LLaVA-Pretrain/images" \
-    --vision_tower_aux_list '["openai/clip-vit-large-patch14-336"]' \
+    --vision_tower_aux_list '["siglip/CLIP-ViT-SO400M-14-384", "openai/clip-vit-large-patch14-336", "facebook/dinov2-giant-res378", "clip-convnext-XXL-multi-stage"]' \
     --vision_tower_aux_token_len_list '[576, 576, 576, 9216]' \
     --image_token_len 576 \
     --num_query_group 1 \
@@ -37,7 +37,7 @@ deepspeed --include=localhost:7 \
     --bf16 True \
     --output_dir $CKPT_DIR \
     --num_train_epochs 1 \
-    --per_device_train_batch_size 8 \
+    --per_device_train_batch_size 32 \
     --per_device_eval_batch_size 4 \
     --gradient_accumulation_steps 1 \
     --evaluation_strategy "no" \
