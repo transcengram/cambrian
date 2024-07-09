@@ -33,7 +33,7 @@ from cambrian.utils import IS_XLA_AVAILABLE
 # Original version: train only when IS_XLA_AVAILABLE == True
 # Now we need to set IF_TRAIN=True in pretrain.sh and finetune.sh
 import os
-IF_TRAIN = os.getenv('IF_TRAIN', 'False')
+IF_TRAIN = os.getenv('IF_TRAIN', False)
 print(f"IF_TRAIN: {IF_TRAIN}")
 
 
