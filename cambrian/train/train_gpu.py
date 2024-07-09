@@ -9,5 +9,5 @@ if project_root not in sys.path:
 from cambrian.train.train_fsdp_gpu import train
 
 if __name__ == "__main__":
-    # train(attn_implementation="flash_attention_2")
-    train(attn_implementation=None)
+    train(attn_implementation="flash_attention_2")
+    # train(attn_implementation=None)
