@@ -924,18 +924,20 @@ class LazySupervisedDataset(Dataset):
 
     def _get_length(self):
         """Calculates the number of samples in the .jsonl file."""
-        # with open(self.data_path, 'r') as file:
-        #     for i, _ in enumerate(file):
-        #         pass
-        # return i + 1
-        with open(self.data_path, 'r') as file:
-            data = json.load(file)
-            return len(data)
+        if self.data_path.endswith(".json"):
+            with open(self.data_path, 'r') as file:
+                data = json.load(file)
+                return len(data)
+        else:
+            # self.data_path.endswith(".jsonl")
+            with open(self.data_path, 'r') as file:
+                for i, _ in enumerate(file):
+                    pass
+            return i + 1
 
     def __len__(self):
         """Returns the number of samples in the dataset."""
         return self.length
-
 
     def _compute_lengths(self):
         """Compute and cache lengths of conversations in the dataset."""
@@ -945,14 +947,25 @@ class LazySupervisedDataset(Dataset):
 
         self.length_list = []
         self.modality_length_list = []
-        with open(self.data_path, 'r') as file:
-            for line in file:
-                sample = json.loads(line.strip())
-                img_tokens = self.data_args.image_token_len if self._has_image(sample) else 0
-                cur_len = sum(len(conv['value'].split()) for conv in sample['conversations'])
-                self.length_list.append(cur_len + img_tokens)
-                modality_len = cur_len if 'image' in sample else -cur_len
-                self.modality_length_list.append(modality_len)
+        if self.data_path.endswith(".json"):
+            with open(self.data_path, 'r') as file:
+                samples = json.load(file)
+                for sample in samples:
+                    img_tokens = self.data_args.image_token_len if self._has_image(sample) else 0
+                    cur_len = sum(len(conv['value'].split()) for conv in sample['conversations'])
+                    self.length_list.append(cur_len + img_tokens)
+                    modality_len = cur_len if 'image' in sample else -cur_len
+                    self.modality_length_list.append(modality_len)
+        else:
+            # self.data_path.endswith(".jsonl")
+            with open(self.data_path, 'r') as file:
+                for line in file:
+                    sample = json.loads(line.strip())
+                    img_tokens = self.data_args.image_token_len if self._has_image(sample) else 0
+                    cur_len = sum(len(conv['value'].split()) for conv in sample['conversations'])
+                    self.length_list.append(cur_len + img_tokens)
+                    modality_len = cur_len if 'image' in sample else -cur_len
+                    self.modality_length_list.append(modality_len)
         return self.length_list, self.modality_length_list
 
     @property
@@ -971,15 +984,18 @@ class LazySupervisedDataset(Dataset):
     def __getitem__(self, i) -> Dict[str, torch.Tensor]:
         #sources = self.list_data_dict[i]
 
-        # with open(self.data_path, 'r') as file:
-        #     for idx, line in enumerate(file):
-        #         if idx == i:
-        #             sources = json.loads(line.strip())
-        #             break
+        if self.data_path.endswith(".json"):
+            with open(self.data_path, 'r') as file:
+                data = json.load(file)  # Load the entire JSON array into memory
+                sources = data[i]
 
-        with open(self.data_path, 'r') as file:
-            data = json.load(file)  # Load the entire JSON array into memory
-            sources = data[i]
+        else:
+            # self.data_path.endswith(".jsonl")
+            with open(self.data_path, 'r') as file:
+                for idx, line in enumerate(file):
+                    if idx == i:
+                        sources = json.loads(line.strip())
+                        break
 
         dat = sources
         if isinstance(i, int):
