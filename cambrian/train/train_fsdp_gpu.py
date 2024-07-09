@@ -922,12 +922,16 @@ class LazySupervisedDataset(Dataset):
         self.data_args = data_args
         self.length = self._get_length()
 
+    def _load_json_data(self):
+        with open(self.data_path, 'r') as file:
+            data = json.load(file)[:10]
+        return data
+
     def _get_length(self):
         """Calculates the number of samples in the .jsonl file."""
         if self.data_path.endswith(".json"):
-            with open(self.data_path, 'r') as file:
-                data = json.load(file)
-                return len(data)
+            data = self._load_json_data()
+            return len(data)
         else:
             # self.data_path.endswith(".jsonl")
             with open(self.data_path, 'r') as file:
@@ -948,14 +952,13 @@ class LazySupervisedDataset(Dataset):
         self.length_list = []
         self.modality_length_list = []
         if self.data_path.endswith(".json"):
-            with open(self.data_path, 'r') as file:
-                samples = json.load(file)
-                for sample in samples:
-                    img_tokens = self.data_args.image_token_len if self._has_image(sample) else 0
-                    cur_len = sum(len(conv['value'].split()) for conv in sample['conversations'])
-                    self.length_list.append(cur_len + img_tokens)
-                    modality_len = cur_len if 'image' in sample else -cur_len
-                    self.modality_length_list.append(modality_len)
+            samples = self._load_json_data()
+            for sample in samples:
+                img_tokens = self.data_args.image_token_len if self._has_image(sample) else 0
+                cur_len = sum(len(conv['value'].split()) for conv in sample['conversations'])
+                self.length_list.append(cur_len + img_tokens)
+                modality_len = cur_len if 'image' in sample else -cur_len
+                self.modality_length_list.append(modality_len)
         else:
             # self.data_path.endswith(".jsonl")
             with open(self.data_path, 'r') as file:
@@ -985,9 +988,8 @@ class LazySupervisedDataset(Dataset):
         #sources = self.list_data_dict[i]
 
         if self.data_path.endswith(".json"):
-            with open(self.data_path, 'r') as file:
-                data = json.load(file)  # Load the entire JSON array into memory
-                sources = data[i]
+            data = self._load_json_data()
+            sources = data[i]
 
         else:
             # self.data_path.endswith(".jsonl")
