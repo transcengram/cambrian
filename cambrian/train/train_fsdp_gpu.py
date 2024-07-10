@@ -936,7 +936,7 @@ class LazySupervisedDataset(Dataset):
 
     def _load_json_data(self):
         with open(self.data_path, 'r') as file:
-            data = json.load(file)
+            data = json.load(file)[:100]
         return data
 
     def _get_length(self):
@@ -1484,6 +1484,9 @@ def train(attn_implementation=None):
         if self.bias is None:
             return self._conv_forward(input, self.weight, self.bias)
         return self._conv_forward(input, self.weight, self.bias.to(input.dtype))
+        # if self.bias is None:
+        #     return self._conv_forward(input, self.weight.to(input.dtype), self.bias)
+        # return self._conv_forward(input, self.weight.to(input.dtype), self.bias.to(input.dtype))
 
     nn.Conv2d.forward = new_forward_conv
 
@@ -1491,6 +1494,9 @@ def train(attn_implementation=None):
         if self.bias is None:
             return F.linear(input, self.weight, self.bias)
         return F.linear(input, self.weight, self.bias.to(input.dtype)).to(input.dtype)
+        # if self.bias is None:
+        #     return F.linear(input, self.weight, self.bias)
+        # return F.linear(input, self.weight.to(input.dtype), self.bias.to(input.dtype))
 
     nn.Linear.forward = new_forward_linear
 
