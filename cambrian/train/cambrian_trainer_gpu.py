@@ -559,7 +559,7 @@ class CambrianTrainer(Trainer):
         del state_dict
         ckpt = {
             'model': cpu_state_dict,
-            'shard_metadata': self.model.get_shard_metadata()
+            # 'shard_metadata': self.model.get_shard_metadata()
         }
         os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
         # xm.save(ckpt, ckpt_path, master_only=False)
