@@ -8,7 +8,7 @@ export CKPT_DIR="/public/home/seg_test/cambrian/checkpoints/$CKPT_NAME" &&
 
 export IF_TRAIN=True
 
-deepspeed --include=localhost:7 \
+deepspeed --include=localhost:4 \
     cambrian/train/train_gpu.py \
     --deepspeed ./scripts/zero2.json \
     --model_name_or_path lmsys/vicuna-7b-v1.5 \
@@ -37,7 +37,7 @@ deepspeed --include=localhost:7 \
     --bf16 True \
     --output_dir $CKPT_DIR \
     --num_train_epochs 1 \
-    --per_device_train_batch_size 32 \
+    --per_device_train_batch_size 16 \
     --per_device_eval_batch_size 4 \
     --gradient_accumulation_steps 1 \
     --evaluation_strategy "no" \
@@ -49,7 +49,7 @@ deepspeed --include=localhost:7 \
     --warmup_ratio 0.06 \
     --lr_scheduler_type "cosine" \
     --logging_steps 1 \
-    --tf32 False \
+    --tf32 True \
     --model_max_length 2048 \
     --gradient_checkpointing True \
     --dataloader_num_workers 4 \

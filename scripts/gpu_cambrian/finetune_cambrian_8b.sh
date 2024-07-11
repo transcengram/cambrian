@@ -8,9 +8,9 @@ export CKPT_DIR="/public/home/seg_test/cambrian/checkpoints/$CKPT_NAME" &&
 
 export IF_TRAIN=True
 
-deepspeed --include=localhost:6 \
+deepspeed --include=localhost:4,5,6,7 \
     cambrian/train/train_gpu.py \
-    --deepspeed ./scripts/zero3.json \
+    --deepspeed ./scripts/zero2.json \
     --model_name_or_path lmsys/vicuna-7b-v1.5 \
     --version v1 \
     --data_path "/public/home/seg_test/crate-alpha-llava/playground/data/LLaVA-Instruct-150K/llava_v1_5_mix665k_clean.json" \
@@ -35,7 +35,7 @@ deepspeed --include=localhost:6 \
     --mm_use_im_patch_token False \
     --image_aspect_ratio pad \
     --group_by_modality_length True \
-    --bf16 False \
+    --bf16 True \
     --output_dir $CKPT_DIR \
     --num_train_epochs 1 \
     --per_device_train_batch_size 8 \
@@ -50,7 +50,7 @@ deepspeed --include=localhost:6 \
     --warmup_ratio 0.03 \
     --lr_scheduler_type "cosine" \
     --logging_steps 1 \
-    --tf32 False \
+    --tf32 True \
     --model_max_length 2048 \
     --gradient_checkpointing True \
     --dataloader_num_workers 4 \

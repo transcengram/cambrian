@@ -1,9 +1,9 @@
 #!/bin/bash
 
-export WANDB_NAME="cambrian-8b-pretrain"
+export WANDB_NAME="test_cambrian-8b-pretrain"
 export WANDB_MODE="offline"
 
-export CKPT_NAME="cambrian-8b-pretrain" &&
+export CKPT_NAME="test_cambrian-8b-pretrain" &&
 export CKPT_DIR="/public/home/seg_test/cambrian/checkpoints/$CKPT_NAME" &&
 
 export IF_TRAIN=True

@@ -1481,22 +1481,22 @@ def train(attn_implementation=None):
     transformers.models.mistral.modeling_mistral.MistralRMSNorm.forward = forward
 
     def new_forward_conv(self, input):
-        if self.bias is None:
-            return self._conv_forward(input, self.weight, self.bias)
-        return self._conv_forward(input, self.weight, self.bias.to(input.dtype))
         # if self.bias is None:
-        #     return self._conv_forward(input, self.weight.to(input.dtype), self.bias)
-        # return self._conv_forward(input, self.weight.to(input.dtype), self.bias.to(input.dtype))
+        #     return self._conv_forward(input, self.weight, self.bias)
+        # return self._conv_forward(input, self.weight, self.bias.to(input.dtype))
+        if self.bias is None:
+            return self._conv_forward(input, self.weight.to(input.dtype), self.bias)
+        return self._conv_forward(input, self.weight.to(input.dtype), self.bias.to(input.dtype))
 
     nn.Conv2d.forward = new_forward_conv
 
     def new_forward_linear(self, input):
-        if self.bias is None:
-            return F.linear(input, self.weight, self.bias)
-        return F.linear(input, self.weight, self.bias.to(input.dtype)).to(input.dtype)
         # if self.bias is None:
         #     return F.linear(input, self.weight, self.bias)
-        # return F.linear(input, self.weight.to(input.dtype), self.bias.to(input.dtype))
+        # return F.linear(input, self.weight, self.bias.to(input.dtype)).to(input.dtype)
+        if self.bias is None:
+            return F.linear(input, self.weight.to(input.dtype), self.bias)
+        return F.linear(input, self.weight.to(input.dtype), self.bias.to(input.dtype))
 
     nn.Linear.forward = new_forward_linear
 
@@ -1776,10 +1776,8 @@ def train(attn_implementation=None):
     data_module = make_supervised_data_module(tokenizer=tokenizer,
                                               data_args=data_args)
 
-    
-
     # if training_args.bf16:
-    #     model = model.to(dtype=torch.float32)
+    #     model = model.to(dtype=torch.bfloat16)
 
     callbacks = []
 
@@ -1790,12 +1788,28 @@ def train(attn_implementation=None):
         training_args.report_to.remove("wandb")
         assert "wandb" not in training_args.report_to, training_args.report_to
 
+    # for name, param in model.named_parameters():
+    #     param.data = param.data.to(torch.bfloat16)
+    #     print(f"{name}: {param.dtype}, {param.shape}")
+
+    # print("\n\n\nbefore \n")
+    # for name, param in model.named_parameters():
+    #     print(f"{name}: {param.dtype}, {param.shape}")
+    # print("\nbefore \n")
+
+    # print(training_args)
 
     log_rank0("Configuring trainer...")
     trainer = CambrianTrainer(model=model,
                     tokenizer=tokenizer,
                     args=training_args,
                     **data_module)
+
+    # print("\n\n\nafter \n")
+    # for name, param in trainer.model.named_parameters():
+    #     print(f"{name}: {param.dtype}, {param.shape}")
+    # print("\nafter \n")
+
     if training_args.train_continue:
         resume_from_checkpoint=training_args.resume_from_checkpoint
         trainer.train(resume_from_checkpoint=resume_from_checkpoint)

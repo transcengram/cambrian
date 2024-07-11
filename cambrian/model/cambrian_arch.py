@@ -37,6 +37,27 @@ IF_TRAIN = os.getenv('IF_TRAIN', False)
 print(f"IF_TRAIN: {IF_TRAIN}")
 
 
+def print_weights(model_or_weights):
+    if isinstance(model_or_weights, nn.Sequential):
+        for name, weight in model_or_weights.named_parameters():
+            print(name, weight.shape, weight.dtype)
+    elif isinstance(model_or_weights, dict):
+        for name, weight in model_or_weights.items():
+            print(name, weight.shape, weight.dtype)
+    else:
+        print(type(model_or_weights))
+
+
+"""
+def set_trace_rank0():
+    import torch.distributed as dist
+    if dist.get_rank() == 0:
+        import ipdb
+        ipdb.set_trace()
+    dist.barrier()
+"""
+
+
 class CambrianMetaModel:
 
     def __init__(self, config):
@@ -87,7 +108,7 @@ class CambrianMetaModel:
 
             else:
                 self.vision_tower_aux_list = build_vision_tower_aux_list(config, delay_load=True)
-                config.mm_hidden_size = sum([vision_tower_aux.hidden_size for vision_tower_aux in self.vision_tower_aux_list]) 
+                config.mm_hidden_size = sum([vision_tower_aux.hidden_size for vision_tower_aux in self.vision_tower_aux_list])
                 self.mm_projector = build_vision_projector(config)
                 self.image_newline = nn.Parameter(
                         torch.empty(config.hidden_size, dtype=self.dtype)
@@ -169,14 +190,14 @@ class CambrianMetaModel:
                 self.vision_query = nn.Parameter(
                     torch.randn((num_query_group, vision_hidden_size), dtype=self.dtype) * vision_embed_std
                 )
-                
+
                 embed_std = 1 / torch.sqrt(torch.tensor(self.config.hidden_size, dtype=self.dtype))
                 self.image_newline = nn.Parameter(
                     torch.randn(self.config.hidden_size, dtype=self.dtype) * embed_std
                 )
 
             else:
-                self.config.mm_hidden_size = sum([vision_tower_aux.hidden_size for vision_tower_aux in vision_tower_aux_list]) 
+                self.config.mm_hidden_size = sum([vision_tower_aux.hidden_size for vision_tower_aux in vision_tower_aux_list])
                 self.mm_projector = build_vision_projector(self.config)
                 embed_std = 1 / torch.sqrt(torch.tensor(self.config.hidden_size, dtype=self.dtype))
                 self.image_newline = nn.Parameter(
@@ -187,7 +208,17 @@ class CambrianMetaModel:
             for p in self.mm_projector.parameters():
                 p.requires_grad = True
 
+        # print(self.dtype)
+        # torch.float32
+
         if pretrain_mm_mlp_adapter is not None:
+
+            # import torch.distributed as dist
+            # if dist.get_rank() == 0:
+            #     import ipdb
+            #     ipdb.set_trace()
+            # dist.barrier()
+
             mm_projector_weights = torch.load(pretrain_mm_mlp_adapter, map_location='cpu')
             def get_w(weights, keyword):
                 return {k.split(keyword + '.')[1]: v for k, v in weights.items() if keyword+'.' in k}
@@ -198,11 +229,29 @@ class CambrianMetaModel:
                 for aux_i in range(len(vision_tower_aux_list)):
                     getattr(self, 'mm_projector_aux_{}'.format(aux_i)).load_state_dict(get_w(mm_projector_weights, 'mm_projector_aux_{}'.format(aux_i)),strict=True)
 
+                    # aux_module = getattr(self, 'mm_projector_aux_{}'.format(aux_i))
+                    # for param in aux_module.parameters():
+                    #     param.data = param.data.to(torch.bfloat16)
+                    # for buffer in aux_module.buffers():
+                    #     buffer.data = buffer.data.to(torch.bfloat16)
+
                 for query_group_i in range(num_query_group):
                     getattr(self, "vision_sampler_{}".format(query_group_i)).load_state_dict(get_w(mm_projector_weights, "vision_sampler_{}".format(query_group_i)),strict=True)
 
+                    # query_group_module = getattr(self, "vision_sampler_{}".format(query_group_i))
+                    # for param in query_group_module.parameters():
+                    #     param.data = param.data.to(torch.bfloat16)
+                    # for buffer in query_group_module.buffers():
+                    #     buffer.data = buffer.data.to(torch.bfloat16)
+
                 if not connector_only:
                     self.vision_sampler_layers.load_state_dict(get_w(mm_projector_weights, 'vision_sampler_layers'),strict=True)
+
+                    # for param in self.vision_sampler_layers.parameters():
+                    #     param.data = param.data.to(torch.bfloat16)
+                    # for buffer in self.vision_sampler_layers.buffers():
+                    #     buffer.data = buffer.data.to(torch.bfloat16)
+
                 self.vision_query.data = mm_projector_weights['model.vision_query']
             self.image_newline.data = mm_projector_weights['model.image_newline']
 
@@ -379,6 +428,16 @@ class CambrianMetaForCausalLM(ABC):
             for aux_i in range(len(vision_tower_aux_list)):
                 image_aux_features = image_aux_features_list[aux_i]
 
+                # import torch.distributed as dist
+                # if dist.get_rank() == 0:
+                #     import ipdb
+                #     ipdb.set_trace()
+                # dist.barrier()
+
+                # print(aux_i)
+                # print_weights(getattr(self.get_model(), 'mm_projector_aux_{}'.format(aux_i)))
+                # print_weights(image_aux_features)
+
                 image_aux_features = getattr(self.get_model(), 'mm_projector_aux_{}'.format(aux_i))(image_aux_features).to(dtype)
                 if aux_i == 0:
                     global_context_feature = image_aux_features.mean(1).view(bs, 1, 1, -1)
@@ -401,9 +460,9 @@ class CambrianMetaForCausalLM(ABC):
                 # interpolate to the final target size
                 if query_side_len != final_height:
                     query_features_i = query_features_i.permute(0, 2, 1).contiguous().view(bs, -1, query_side_len, query_side_len)
-                    query_features_i = F.interpolate(query_features_i.float(), 
-                                                    size=(final_height, final_width), 
-                                                    mode='bilinear', 
+                    query_features_i = F.interpolate(query_features_i.float(),
+                                                    size=(final_height, final_width),
+                                                    mode='bilinear',
                                                     align_corners=False).to(dtype=query_features_i.dtype)
                     query_features_i = query_features_i.permute(0, 2, 3, 1).contiguous().flatten(1, 2)
                 final_image_features_list.append(query_features_i)
