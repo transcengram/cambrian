@@ -1941,7 +1941,7 @@ def train(attn_implementation=None):
 
     # if training_args.bf16:
     #     model = model.to(dtype=torch.bfloat16)
-
+    '''
     callbacks = []
 
     if "wandb" in training_args.report_to:
@@ -1950,7 +1950,7 @@ def train(attn_implementation=None):
         # rm wandb from training_args.report_to so it doesn't get passed to the Trainer
         training_args.report_to.remove("wandb")
         assert "wandb" not in training_args.report_to, training_args.report_to
-
+    '''
     # print("\n\n\nbefore \n")
     # for name, param in model.named_parameters():
     #     print(f"{name}: {param.dtype}, {param.shape}")
