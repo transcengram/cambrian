@@ -936,7 +936,7 @@ class LazySupervisedDataset(Dataset):
 
     def _load_json_data(self):
         with open(self.data_path, 'r') as file:
-            data = json.load(file)[:100]
+            data = json.load(file)
         return data
 
     def _get_length(self):
