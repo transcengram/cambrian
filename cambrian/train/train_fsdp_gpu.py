@@ -19,6 +19,7 @@ import os
 import re
 import re
 import copy
+import time
 from dataclasses import dataclass, field
 import json
 import logging
@@ -921,13 +922,13 @@ def preprocess(
     return dict(input_ids=input_ids, labels=targets)
 
 
-class LazySupervisedDataset(Dataset):
+class LazySupervisedDataset_ORI(Dataset):
     """Dataset for supervised fine-tuning."""
 
     def __init__(self, data_path: str,
                  tokenizer: transformers.PreTrainedTokenizer,
                  data_args: DataArguments):
-        super(LazySupervisedDataset, self).__init__()
+        super(LazySupervisedDataset_ORI, self).__init__()
 
         self.tokenizer = tokenizer
         self.data_path = data_path
@@ -999,6 +1000,8 @@ class LazySupervisedDataset(Dataset):
     def __getitem__(self, i) -> Dict[str, torch.Tensor]:
         #sources = self.list_data_dict[i]
 
+        # t = time.time()
+
         if self.data_path.endswith(".json"):
             data = self._load_json_data()
             sources = data[i]
@@ -1010,6 +1013,8 @@ class LazySupervisedDataset(Dataset):
                     if idx == i:
                         sources = json.loads(line.strip())
                         break
+
+        # print(f"Loading dataset[{idx}] takes {time.time() - t}s.")
 
         dat = sources
         if isinstance(i, int):
@@ -1072,6 +1077,164 @@ class LazySupervisedDataset(Dataset):
             crop_size = 336
             processor_aux_list = self.data_args.image_processor_aux_list
             data_dict['image_aux_list'] = [torch.zeros(3, processor_aux.crop_size['height'], processor_aux.crop_size['width']) for processor_aux in processor_aux_list]
+            image_size = (crop_size, crop_size)
+        data_dict['image_size'] = image_size
+        return data_dict
+
+
+from tqdm import tqdm
+class LazySupervisedDataset(Dataset):
+    """Dataset for supervised fine-tuning."""
+
+    def __init__(self, data_path: str,
+                 tokenizer: transformers.PreTrainedTokenizer,
+                 data_args: DataArguments):
+        super(LazySupervisedDataset, self).__init__()
+
+        self.tokenizer = tokenizer
+        self.data_path = data_path
+        self.data_args = data_args
+        self.length = self._get_length()
+
+        self.data_dict_list = self.load_data()
+
+    def load_data(self):
+        if self.data_path.endswith(".json"):
+            with open(self.data_path, 'r') as file:
+                data = json.load(file)
+            return data
+        else:
+            # self.data_path.endswith(".jsonl")
+            data = []
+            with open(self.data_path, 'r') as file:
+                for idx, line in enumerate(tqdm(file)):
+                    data.append(json.loads(line.strip()))
+            return data
+
+    def _load_json_data(self):
+        with open(self.data_path, 'r') as file:
+            data = json.load(file)
+        return data
+
+    def _get_length(self):
+        """Calculates the number of samples in the .jsonl file."""
+        if self.data_path.endswith(".json"):
+            data = self._load_json_data()
+            return len(data)
+        else:
+            # self.data_path.endswith(".jsonl")
+            with open(self.data_path, 'r') as file:
+                for i, _ in enumerate(file):
+                    pass
+            return i + 1
+
+    def __len__(self):
+        """Returns the number of samples in the dataset."""
+        return self.length
+
+    def _compute_lengths(self):
+        """Compute and cache lengths of conversations in the dataset."""
+        if hasattr(self, 'length_list') and hasattr(self, 'modality_length_list'):
+            # Return cached values if already computed
+            return self.length_list, self.modality_length_list
+
+        self.length_list = []
+        self.modality_length_list = []
+
+        for sample in self.data_dict_list:
+            img_tokens = self.data_args.image_token_len if self._has_image(sample) else 0
+            cur_len = sum(len(conv['value'].split()) for conv in sample['conversations'])
+            self.length_list.append(cur_len + img_tokens)
+            modality_len = cur_len if 'image' in sample else -cur_len
+            self.modality_length_list.append(modality_len)
+        return self.length_list, self.modality_length_list
+
+    @property
+    def lengths(self):
+        length_list, _ = self._compute_lengths()
+        return length_list
+
+    @property
+    def modality_lengths(self):
+        _, modality_length_list = self._compute_lengths()
+        return modality_length_list
+
+    def _has_image(self, sample: dict) -> bool:
+        return "image" in sample and not str(sample['image']) in ['', 'None', 'none', 'nan']
+
+    def __getitem__(self, i) -> Dict[str, torch.Tensor]:
+        # sources = self.list_data_dict[i]
+
+        # t = time.time()
+        sources = self.data_dict_list[i]
+        # print(f"Loading dataset[{i}] takes {time.time() - t}s.")
+
+        dat = sources
+        if isinstance(i, int):
+            sources = [sources]
+        assert len(sources) == 1, "Don't know why it is wrapped to a list"  # FIXME
+        has_image = self._has_image(dat)
+        if has_image:
+            image_file = dat['image']
+            image_folder = self.data_args.image_folder
+            processor_aux_list = self.data_args.image_processor_aux_list
+            try:
+                image = Image.open(os.path.join(image_folder, image_file)).convert('RGB')
+            except:
+                return self.__getitem__(0)
+            image_size = image.size
+
+            def expand2square(pil_img, background_color):
+                width, height = pil_img.size
+                if width == height:
+                    return pil_img
+                elif width > height:
+                    result = Image.new(pil_img.mode, (width, width), background_color)
+                    result.paste(pil_img, (0, (width - height) // 2))
+                    # result.paste(pil_img, (0, 0))
+                    return result
+                else:
+                    result = Image.new(pil_img.mode, (height, height), background_color)
+                    result.paste(pil_img, ((height - width) // 2, 0))
+                    # result.paste(pil_img, (0, 0))
+                    return result
+
+            if self.data_args.image_aspect_ratio != 'pad':
+                raise NotImplementedError("Only pad is supported for now.")
+
+            image_aux_list = []
+            for processor_aux in processor_aux_list:
+                image_aux = image
+                target_resolution = processor_aux.crop_size['height']
+                image_aux = expand2square(image_aux, tuple(int(x * 255) for x in processor_aux.image_mean)).resize(
+                    (target_resolution, target_resolution))
+                image_aux = processor_aux.preprocess(image_aux, return_tensors='pt')['pixel_values'][0]
+                image_aux_list.append(image_aux)
+
+            sources = preprocess_multimodal(
+                copy.deepcopy([e["conversations"] for e in sources]),
+                self.data_args)
+        else:
+            sources = copy.deepcopy([e["conversations"] for e in sources])
+        data_dict = preprocess(
+            sources,
+            self.tokenizer,
+            has_image=has_image)
+        if isinstance(i, int):
+            data_dict = dict(input_ids=data_dict["input_ids"][0],
+                             labels=data_dict["labels"][0])
+        if (data_dict['labels'] != IGNORE_INDEX).sum() == 0:
+            return self.__getitem__(0)
+        # image exist in the data
+        if has_image:
+            data_dict['image_aux_list'] = image_aux_list
+        elif self.data_args.is_multimodal:
+            # image does not exist in the data, but the model is multimodal
+            crop_size = 336
+            processor_aux_list = self.data_args.image_processor_aux_list
+            data_dict['image_aux_list'] = [
+                torch.zeros(3, processor_aux.crop_size['height'], processor_aux.crop_size['width']) for processor_aux in
+                processor_aux_list]
             image_size = (crop_size, crop_size)
         data_dict['image_size'] = image_size
         return data_dict
