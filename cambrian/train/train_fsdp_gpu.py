@@ -1788,10 +1788,6 @@ def train(attn_implementation=None):
         training_args.report_to.remove("wandb")
         assert "wandb" not in training_args.report_to, training_args.report_to
 
-    # for name, param in model.named_parameters():
-    #     param.data = param.data.to(torch.bfloat16)
-    #     print(f"{name}: {param.dtype}, {param.shape}")
-
     # print("\n\n\nbefore \n")
     # for name, param in model.named_parameters():
     #     print(f"{name}: {param.dtype}, {param.shape}")

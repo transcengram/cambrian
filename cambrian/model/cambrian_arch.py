@@ -208,9 +208,6 @@ class CambrianMetaModel:
             for p in self.mm_projector.parameters():
                 p.requires_grad = True
 
-        # print(self.dtype)
-        # torch.float32
-
         if pretrain_mm_mlp_adapter is not None:
 
             # import torch.distributed as dist
@@ -229,28 +226,11 @@ class CambrianMetaModel:
                 for aux_i in range(len(vision_tower_aux_list)):
                     getattr(self, 'mm_projector_aux_{}'.format(aux_i)).load_state_dict(get_w(mm_projector_weights, 'mm_projector_aux_{}'.format(aux_i)),strict=True)
 
-                    # aux_module = getattr(self, 'mm_projector_aux_{}'.format(aux_i))
-                    # for param in aux_module.parameters():
-                    #     param.data = param.data.to(torch.bfloat16)
-                    # for buffer in aux_module.buffers():
-                    #     buffer.data = buffer.data.to(torch.bfloat16)
-
                 for query_group_i in range(num_query_group):
                     getattr(self, "vision_sampler_{}".format(query_group_i)).load_state_dict(get_w(mm_projector_weights, "vision_sampler_{}".format(query_group_i)),strict=True)
 
-                    # query_group_module = getattr(self, "vision_sampler_{}".format(query_group_i))
-                    # for param in query_group_module.parameters():
-                    #     param.data = param.data.to(torch.bfloat16)
-                    # for buffer in query_group_module.buffers():
-                    #     buffer.data = buffer.data.to(torch.bfloat16)
-
                 if not connector_only:
                     self.vision_sampler_layers.load_state_dict(get_w(mm_projector_weights, 'vision_sampler_layers'),strict=True)
-
-                    # for param in self.vision_sampler_layers.parameters():
-                    #     param.data = param.data.to(torch.bfloat16)
-                    # for buffer in self.vision_sampler_layers.buffers():
-                    #     buffer.data = buffer.data.to(torch.bfloat16)
 
                 self.vision_query.data = mm_projector_weights['model.vision_query']
             self.image_newline.data = mm_projector_weights['model.image_newline']
