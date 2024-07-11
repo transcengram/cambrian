@@ -1,21 +1,20 @@
 #!/bin/bash
 
-export WANDB_NAME="cambrian-8b-pretrain"
+export WANDB_NAME="cambrian-8b-pretrain-llava-data"
 export WANDB_MODE="offline"
 
-export CKPT_NAME="cambrian-8b-pretrain" &&
+export CKPT_NAME="cambrian-8b-pretrain-llava-data" &&
 export CKPT_DIR="/public/home/seg_test/cambrian/checkpoints/$CKPT_NAME" &&
 
 export IF_TRAIN=True
-export _ROOT_DIR_="/public/home/seg_test/"
 
-deepspeed --include=localhost:4,5,6,7 \
+deepspeed --include=localhost:4 \
     cambrian/train/train_gpu.py \
     --deepspeed ./scripts/zero2.json \
     --model_name_or_path lmsys/vicuna-7b-v1.5 \
     --version plain \
-    --data_path "$_ROOT_DIR_/zgr/data/Cambrian-Alignment/jsons/alignment_2.5m.jsonl" \
-    --image_folder "$_ROOT_DIR_/zgr/data/Cambrian-Alignment/" \
+    --data_path "/public/home/seg_test/crate-alpha-llava/playground/data/LLaVA-Pretrain/blip_laion_cc_sbu_558k.json" \
+    --image_folder "/public/home/seg_test/crate-alpha-llava/playground/data/LLaVA-Pretrain/images" \
     --vision_tower_aux_list '["siglip/CLIP-ViT-SO400M-14-384", "openai/clip-vit-large-patch14-336", "facebook/dinov2-giant-res378", "clip-convnext-XXL-multi-stage"]' \
     --vision_tower_aux_token_len_list '[576, 576, 576, 9216]' \
     --image_token_len 576 \
@@ -55,9 +54,8 @@ deepspeed --include=localhost:4,5,6,7 \
     --gradient_checkpointing True \
     --dataloader_num_workers 4 \
     --lazy_preprocess True \
-    --run_name $CKPT_NAME
-
-#    --report_to wandb \
+    --run_name $CKPT_NAME \
+    --report_to wandb
 
 #    --fsdp "full_shard" \
 #    --fsdp_config fsdp_config_gpu.json
@@ -70,6 +68,7 @@ if [ ! -d "$CKPT_PATH" ]; then
     echo "Checkpoint path does not exist. Exiting..."
     exit 1
 fi
-echo "Training finished. Syncing checkpoints to GCS..."
-gcloud alpha storage rsync $CKPT_PATH gs://us-central2-storage/cambrian/checkpoints/$CKPT_NAME
-echo "Syncing finished. Checkpoints are now available at $CKPT_DIR"
+echo "Training finished. "
+#echo "Syncing checkpoints to GCS..."
+#gcloud alpha storage rsync $CKPT_PATH gs://us-central2-storage/cambrian/checkpoints/$CKPT_NAME
+#echo "Syncing finished. Checkpoints are now available at $CKPT_DIR"

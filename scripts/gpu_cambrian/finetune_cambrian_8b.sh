@@ -7,15 +7,16 @@ export CKPT_NAME="cambrian-8b-finetune" &&
 export CKPT_DIR="/public/home/seg_test/cambrian/checkpoints/$CKPT_NAME" &&
 
 export IF_TRAIN=True
+export _ROOT_DIR_="/public/home/seg_test/"
 
 deepspeed --include=localhost:4,5,6,7 \
     cambrian/train/train_gpu.py \
     --deepspeed ./scripts/zero2.json \
     --model_name_or_path lmsys/vicuna-7b-v1.5 \
     --version v1 \
-    --data_path "/public/home/seg_test/crate-alpha-llava/playground/data/LLaVA-Instruct-150K/llava_v1_5_mix665k_clean.json" \
-    --image_folder "/public/home/seg_test/crate-alpha-llava/playground/data/" \
-    --pretrain_mm_mlp_adapter ./checkpoints/cambrian-8b-pretrain/mm_projector.bin \
+    --data_path "$_ROOT_DIR_/zgr/data/Cambrian-10M/jsons/Cambrian7M_withsystemprompt.jsonl" \
+    --image_folder "$_ROOT_DIR_/zgr/data/Cambrian-10M/" \
+    --pretrain_mm_mlp_adapter "$_ROOT_DIR_/lby/cambrian/checkpoints/cambrian-8b-pretrain/mm_projector.bin" \
     --vision_tower_aux_list '["siglip/CLIP-ViT-SO400M-14-384", "openai/clip-vit-large-patch14-336", "facebook/dinov2-giant-res378", "clip-convnext-XXL-multi-stage"]' \
     --vision_tower_aux_token_len_list '[576, 576, 576, 9216]' \
     --image_token_len 576 \
