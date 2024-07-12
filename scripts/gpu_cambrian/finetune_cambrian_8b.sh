@@ -3,11 +3,11 @@
 export WANDB_NAME="cambrian-8b-finetune"
 #export WANDB_MODE="offline"
 
-export CKPT_NAME="cambrian-8b-finetune" &&
-export CKPT_DIR="/public/home/seg_test/cambrian/checkpoints/$CKPT_NAME" &&
-
 export IF_TRAIN=True
 export _ROOT_DIR_="/public/home/seg_test/"
+
+export CKPT_NAME="cambrian-8b-finetune" &&
+export CKPT_DIR="$_ROOT_DIR_/lby/cambrian/checkpoints/$CKPT_NAME" &&
 
 deepspeed cambrian/train/train_gpu.py \
     --deepspeed ./scripts/zero2.json \

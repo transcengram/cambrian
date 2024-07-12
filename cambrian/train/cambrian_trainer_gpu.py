@@ -432,7 +432,10 @@ class CambrianTrainer(Trainer):
         # Saving to each worker  - NO NEED TO MOVE ANYTHING TO XLA
         self.model.load_state_dict(state_dict)
 
-    def _save_checkpoint(self, model, trial, metrics=None):
+    def _save_checkpoint_ori(self, model, trial, metrics=None):
+
+        print("_save_checkpoint")
+
         from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
 
         # Names of files
@@ -447,55 +450,32 @@ class CambrianTrainer(Trainer):
         logger.info(f"Saving model checkpoint to {output_dir}")
 
         model = self.model
-        # import torch_xla.core.xla_model as xm
-        # rank = xm.get_ordinal()
-        # world_size = xm.xrt_world_size()
-        rank = torch.distributed.get_rank()
-        world_size = torch.distributed.get_world_size()
 
-        # Name of files to save
-        SHARD_NAME = f'weights_rank-{rank:08d}-of-{world_size:08d}-{WEIGHTS_NAME}'
-        SHARD_NAME_OPT = f'opt_rank-{rank:08d}-of-{world_size:08d}-{WEIGHTS_NAME}'
-        RNG_NAME = f'rng_rank-{rank:08d}-of-{world_size:08d}-rng.pth'
+        # Save the model using DeepSpeed
+        model.save_pretrained(output_dir)
 
-        # Path of files to save
-        SHARD_NAME_PATH = os.path.join(output_dir, SHARD_NAME)
-        SHARD_NAME_OPT_PATH = os.path.join(output_dir, SHARD_NAME_OPT)
-        LR_PATH = os.path.join(output_dir, SCHEDULER_NAME)
-        TRAIN_ARGS_PATH = os.path.join(output_dir, TRAINING_ARGS_NAME)
-        TRAINER_STATE_NAME_PATH = os.path.join(output_dir, TRAINER_STATE_NAME)
-        RNG_PATH = os.path.join(output_dir, RNG_NAME)
-        lr_scheduler_state_dict = self.lr_scheduler.state_dict()
-
-        # Final form of model and opt
-        ckpt = {
-            'model': self.model.state_dict(),
-            'shard_metadata': self.model.get_shard_metadata()
-        }
+        # Save optimizer state
         opt_ckpt = {
-            'optimizer_state' : self.optimizer.state_dict(),
-            'shard_metadata': self.model.get_shard_metadata()
+            'optimizer_state': self.optimizer.state_dict()
         }
+        opt_ckpt_path = os.path.join(output_dir, 'optimizer.pt')
+        torch.save(opt_ckpt, opt_ckpt_path)
 
-        # Get the rank of the current process
-        rank = torch.distributed.get_rank()
+        # Save LR scheduler state
+        lr_scheduler_state_dict = self.lr_scheduler.state_dict()
+        lr_path = os.path.join(output_dir, SCHEDULER_NAME)
+        torch.save(lr_scheduler_state_dict, lr_path)
 
-        # Save model shards
-        with open(SHARD_NAME_PATH, 'wb') as f:
-            torch.save(ckpt, f)
+        # Save training arguments
+        train_args_path = os.path.join(output_dir, TRAINING_ARGS_NAME)
+        with open(train_args_path, 'wb') as f:
+            torch.save(self.args, f)
 
-        # Save optimizer shards
-        with open(SHARD_NAME_OPT_PATH, 'wb') as f:
-            torch.save(opt_ckpt, f)
-
-        # Save LR scheduler and training state JSON if the current process is the master (rank 0)
-        if rank == 0:
-            with open(LR_PATH, 'wb') as f:
-                torch.save(lr_scheduler_state_dict, f)
-
-            json_string = json.dumps(dataclasses.asdict(self.state), indent=2, sort_keys=True) + "\n"
-            with open(TRAINER_STATE_NAME_PATH, 'w') as f:
-                f.write(json_string)
+        # Save trainer state
+        trainer_state_name_path = os.path.join(output_dir, TRAINER_STATE_NAME)
+        json_string = json.dumps(dataclasses.asdict(self.state), indent=2, sort_keys=True) + "\n"
+        with open(trainer_state_name_path, 'w') as f:
+            f.write(json_string)
 
         # Save RNG states
         rng_states = {
@@ -504,82 +484,47 @@ class CambrianTrainer(Trainer):
             "cpu": torch.random.get_rng_state(),
             "cuda": torch.cuda.get_rng_state()  # Save CUDA RNG state for GPU
         }
-        with open(RNG_PATH, 'wb') as f:
+        rng_path = os.path.join(output_dir, 'rng.pth')
+        with open(rng_path, 'wb') as f:
             torch.save(rng_states, f)
 
-        # # Saving model shards
-        # with fs.open(SHARD_NAME_PATH, 'wb') as f:
-        #     xm.save(ckpt, f, master_only=False)
-        #
-        # # Saving optimizer shards
-        # with fs.open(SHARD_NAME_OPT_PATH, 'wb') as f:
-        #     xm.save(opt_ckpt, f, master_only=False)
-        #
-        # # saving lr scheduler and train state json
-        # if xm.is_master_ordinal(local=False):
-        #     with fs.open(LR_PATH, 'wb') as f:
-        #         xm.save(lr_scheduler_state_dict, f, master_only=True)
-        #
-        #     json_string = json.dumps(dataclasses.asdict(self.state), indent=2, sort_keys=True) + "\n"
-        #     with fs.open(TRAINER_STATE_NAME_PATH, 'w') as f:
-        #         f.write(json_string)
-        #
-        # rng_states = {
-        #     "python": random.getstate(),
-        #     "numpy": np.random.get_state(),
-        #     "cpu": torch.random.get_rng_state(),
-        # }
-        # rng_states["xla"] = xm.get_rng_state()
-        # with fs.open(RNG_PATH, 'wb') as f:
-        #     torch.save(rng_states, f)
+    def _save_checkpoint(self, model, trial, metrics=None):
+        # print("_save_checkpoint")
+
+        if getattr(self.args, "tune_mm_mlp_adapter", False):
+            from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
+            checkpoint_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
+
+            run_dir = self._get_output_dir(trial=trial)
+            output_dir = os.path.join(run_dir, checkpoint_folder)
+
+            # Only save Adapter
+            keys_to_match = ['mm_projector', 'pos_emb', 'vision_sampler', 'vision_sampler_layers', 'vision_query',
+                             'image_newline']
+            if getattr(self.args, "use_im_start_end", False):
+                keys_to_match.extend(['embed_tokens', 'embed_in'])
+
+            weight_to_save = get_mm_adapter_state_maybe_zero_3(self.model.named_parameters(), keys_to_match)
+            if self.args.local_rank == 0 or self.args.local_rank == -1:
+                self.model.config.save_pretrained(output_dir)
+                torch.save(weight_to_save, os.path.join(output_dir, f'mm_projector.bin'))
+        else:
+            super(CambrianTrainer, self)._save_checkpoint(model, trial, metrics)
 
     def _save(self, output_dir: Optional[str] = None, state_dict=None):
+
+        print("_save")
+
         if getattr(self.args, 'tune_mm_mlp_adapter', False):
             pass
-        # import torch_xla.core.xla_model as xm
-        ckpt_prefix = os.path.join(output_dir, "model_ckpt")
-        output_dir = output_dir if output_dir is not None else self.args.output_dir
-        os.makedirs(output_dir, exist_ok=True)
-        # rank = xm.get_ordinal()
-        # world_size = xm.xrt_world_size()
-        rank = torch.distributed.get_rank()
-        print("Rank:", rank)
-        world_size = torch.distributed.get_world_size()
-        print("World Size:", world_size)
-        ckpt_path = f'{ckpt_prefix}_rank-{rank:08d}-of-{world_size:08d}.pth'
-        state_dict = self.model.state_dict()
-        cpu_state_dict = {
-                key: value.cpu()
-                for key, value in state_dict.items()
-            }
-        # if not xm.is_master_ordinal(local=False):
-        #     cpu_state_dict = {
-        #         key:value for key, value in cpu_state_dict.items() if 'vision_tower' not in key
-        #     }
-        del state_dict
-        ckpt = {
-            'model': cpu_state_dict,
-            # 'shard_metadata': self.model.get_shard_metadata()
-        }
-        os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
-        # xm.save(ckpt, ckpt_path, master_only=False)
-        torch.save(ckpt, ckpt_path)
-        print(f'checkpoint saved to {ckpt_path}\n', end='')
-        # if xm.is_master_ordinal(local=False):
-        if rank == 0:
-            # consolidate_sharded_model_checkpoints(
-            #     ckpt_prefix=ckpt_prefix, ckpt_suffix="_rank-*-of-*.pth", save_path = os.path.join(output_dir, "model_consolidated.pth"))
-            # self.model.save_pretrained(output_dir, state_dict=None, safe_serialization=self.args.save_safetensors)
-            if self.tokenizer is not None:
-                self.tokenizer.save_pretrained(output_dir)
-            TRAINING_ARGS_NAME = "training_args.bin"
-            # Good practice: save your training arguments together with the trained model
-            torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
-            self.model.config.save_pretrained(output_dir)
+        else:
+            super(CambrianTrainer, self)._save(output_dir, state_dict)
 
     """Override to add custom logs"""
 
     def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval):
+        # print("_maybe_log_save_evaluate")
+
         if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
             # if is_torch_tpu_available():
             #     import torch_xla.core.xla_model as xm
