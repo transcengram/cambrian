@@ -7,7 +7,7 @@ export IF_TRAIN=True
 export _ROOT_DIR_="/public/home/seg_test/"
 
 export CKPT_NAME="cambrian-8b-finetune" &&
-export CKPT_DIR="$_ROOT_DIR_/lby/cambrian/checkpoints/$CKPT_NAME" &&
+export CKPT_DIR="$_ROOT_DIR_/cambrian/checkpoints/$CKPT_NAME" &&
 
 deepspeed cambrian/train/train_gpu.py \
     --deepspeed ./scripts/zero2.json \
