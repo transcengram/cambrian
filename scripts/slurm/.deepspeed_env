@@ -1,0 +1,5 @@
+IF_TRAIN=True
+WANDB_BASE_URL="http://10.10.10.26:8080"
+WANDB_API_KEY="local-1d1a38070771d4b60e996cf2ac75859f268ada0e"
+WANDB_PROJECT="cambrian"
+WANDB_NAME="cambrian-8b-finetune"

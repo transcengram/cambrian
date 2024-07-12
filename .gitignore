@@ -289,5 +289,9 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
-wandb/
 # End of https://www.toptal.com/developers/gitignore/api/web,linux,macos,python,windows,data,jupyternotebooks
+
+# others
+slurm_tmp/
+wandb/
+*.out

@@ -2,28 +2,51 @@
 #SBATCH -J cambrian_debug  # Job name
 #SBATCH -o sbatch_logs.out                  # Name of stdout output log file (%j expands to jobID)
 #SBATCH -e sbatch_logs.out                  # Name of stderr output log file (%j expands to jobID)
-#SBATCH --nodes=1                                 # Total number of nodes requested
-#SBATCH --ntasks=8                                     # Total number of task requested
-#SBATCH --cpus-per-task=16                        # Total number of cores requested
-#SBATCH --mem=1024G
+#SBATCH --nodes=2                                 # Total number of nodes requested
+#SBATCH --ntasks-per-node=8                       # Total number of task requested
+#SBATCH --cpus-per-task=8                        # Total number of cores requested
+#SBATCH --mem=512G
 #SBATCH -t 720:00:00                          # Time limit (hh:mm:ss)
-#SBATCH --gres=gpu:8                       # Specify a list of generic consumable resources (per node)
+#SBATCH --gpus-per-node=8                       # Specify a list of generic consumable resources (per node)
 ########
 
-export WANDB_BASE_URL="http://10.10.10.26:8080"
-export WANDB_API_KEY="local-1d1a38070771d4b60e996cf2ac75859f268ada0e"
-export WANDB_PROJECT="cambrian"
-#export WANDB_MODE="offline"
-export WANDB_NAME="cambrian-8b-finetune"
-#export WANDB_MODE="offline"
+# ******************************************************************************************
+export PATH=/public/home/seg_test/zgr/bin/pdsh/bin:$PATH
+mkdir -p slurm_tmp
+export HOSTFILE="./slurm_tmp/hostfile${SLURM_JOB_ID}"
+scontrol show hostnames $SLURM_JOB_NODELIS | while read NODE; do
+    echo "$NODE slots=$SLURM_GPUS_PER_NODE" >> $HOSTFILE
+done
 
-export IF_TRAIN=True
-export _ROOT_DIR_="/public/home/seg_test/"
+export RANK=$SLURM_PROCID
+export LOCAL_RANK=$SLURM_LOCALID
+
+export MASTER_PORT=55555
+export WORLD_SIZE=$(($SLURM_NNODES * $SLURM_JOB_NUM_NODES))
+
+export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
+
+export NCCL_P2P_LEVEL=NVL
+# ******************************************************************************************
+
 
 export CKPT_NAME="cambrian-8b-finetune" &&
-export CKPT_DIR="$_ROOT_DIR_/lby/cambrian/checkpoints/$CKPT_NAME" &&
+export CKPT_DIR="/public/home/seg_test/cambrian/checkpoints/$CKPT_NAME" &&
 
-deepspeed cambrian/train/train_gpu.py \
+#env viarables used in the program need to be added here
+export DS_ENV_FILE="$(pwd)/scripts/slurm/.deepspeed_env"
+
+export _ROOT_DIR_="/public/home/seg_test/"
+
+
+deepspeed \
+    --num_nodes $SLURM_JOB_NUM_NODES \
+    --num_gpus $SLURM_GPUS_PER_NODE \
+    --master_addr $MASTER_ADDR \
+    --master_port $MASTER_PORT \
+    --hostfile $HOSTFILE \
+    --no_ssh_check \
+    cambrian/train/train_gpu.py \
     --deepspeed ./scripts/zero2.json \
     --model_name_or_path lmsys/vicuna-7b-v1.5 \
     --version v1 \
