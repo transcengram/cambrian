@@ -1611,6 +1611,9 @@ def train(attn_implementation=None):
     parser = transformers.HfArgumentParser(
         (ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    #hack deepspeed can't get local_rank in slurm multi-node env
+    if int(os.environ["SLURM_JOB_NUM_NODES"]) > 1:
+        training_args.local_rank = int(os.environ["SLURM_LOCALID"])
     local_rank = training_args.local_rank
     compute_dtype = (torch.float16 if training_args.fp16 else (torch.bfloat16 if training_args.bf16 else torch.float32))
 

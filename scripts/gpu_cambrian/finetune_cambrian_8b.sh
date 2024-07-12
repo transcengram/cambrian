@@ -1,7 +1,7 @@
 #!/bin/bash
 
 export WANDB_NAME="cambrian-8b-finetune"
-export WANDB_MODE="offline"
+#export WANDB_MODE="offline"
 
 export CKPT_NAME="cambrian-8b-finetune" &&
 export CKPT_DIR="/public/home/seg_test/cambrian/checkpoints/$CKPT_NAME" &&
@@ -9,8 +9,7 @@ export CKPT_DIR="/public/home/seg_test/cambrian/checkpoints/$CKPT_NAME" &&
 export IF_TRAIN=True
 export _ROOT_DIR_="/public/home/seg_test/"
 
-deepspeed --include=localhost:4,5,6,7 \
-    cambrian/train/train_gpu.py \
+deepspeed cambrian/train/train_gpu.py \
     --deepspeed ./scripts/zero2.json \
     --model_name_or_path lmsys/vicuna-7b-v1.5 \
     --version v1 \
@@ -56,9 +55,8 @@ deepspeed --include=localhost:4,5,6,7 \
     --gradient_checkpointing True \
     --dataloader_num_workers 4 \
     --lazy_preprocess True \
-    --run_name $CKPT_NAME
-
-#   --report_to wandb \
+    --run_name $CKPT_NAME \
+    --report_to wandb
 
 #CKPT_PATH=checkpoints/$CKPT_NAME
 CKPT_PATH=$CKPT_DIR
