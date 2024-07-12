@@ -21,12 +21,10 @@ done
 export RANK=$SLURM_PROCID
 export LOCAL_RANK=$SLURM_LOCALID
 
-export MASTER_PORT=55555
+export MASTER_PORT=$(expr 10000 + $(echo -n $SLURM_JOBID | tail -c 4))
 export WORLD_SIZE=$(($SLURM_NNODES * $SLURM_JOB_NUM_NODES))
 
 export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
-
-export NCCL_P2P_LEVEL=NVL
 # ******************************************************************************************
 
 
