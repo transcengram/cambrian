@@ -249,7 +249,10 @@ def find_all_linear_names(model):
 def safe_save_model_for_hf_trainer(trainer: transformers.Trainer,
                                    output_dir: str):
     """Collects the state dict and dump to disk."""
-    output_dir = os.path.join('checkpoints', output_dir.split(os.sep)[-1])
+    # output_dir = os.path.join('checkpoints', output_dir.split(os.sep)[-1])
+    """
+    output_dir may cause sth wrong when rel path
+    """
     if getattr(trainer.args, "tune_mm_mlp_adapter", False):
         # Only save Adapter
         keys_to_match = ['mm_projector', 'pos_emb', 'vision_sampler', 'vision_sampler_layers', 'vision_query', 'image_newline']
@@ -284,9 +287,11 @@ def safe_save_model_for_hf_trainer(trainer: transformers.Trainer,
                 if current_folder.startswith('checkpoint-'):
                     mm_projector_folder = os.path.join(parent_folder, "mm_projector")
                     os.makedirs(mm_projector_folder, exist_ok=True)
-                    torch.save(weight_to_save, os.path.join(mm_projector_folder, f'{current_folder}.bin'))
+                    ckpt_path = os.path.join(mm_projector_folder, f'{current_folder}.bin')
                 else:
-                    torch.save(weight_to_save, os.path.join(output_dir, f'mm_projector.bin'))
+                    ckpt_path = os.path.join(output_dir, "mm_projector.bin")
+                print(f'checkpoint saved to {ckpt_path}\n', end='')
+                torch.save(weight_to_save, ckpt_path)
             return
 
     if trainer.deepspeed:
