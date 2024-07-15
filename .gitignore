@@ -295,3 +295,4 @@ $RECYCLE.BIN/
 slurm_tmp/
 wandb/
 *.out
+checkpoints/
