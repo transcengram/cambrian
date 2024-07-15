@@ -956,8 +956,6 @@ class LazySupervisedDataset(Dataset):
                 with open(self.data_path, 'r') as file:
                     for idx, line in enumerate(tqdm(file)):
                         data.append(json.loads(line.strip()))
-                        if idx>1000:
-                            break
             self.data_dict_list = data
             return self.data_dict_list
 
