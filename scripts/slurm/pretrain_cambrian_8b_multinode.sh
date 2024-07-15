@@ -2,12 +2,12 @@
 #SBATCH -J cambrian_debug  # Job name
 #SBATCH -o sbatch_logs.out                  # Name of stdout output log file (%j expands to jobID)
 #SBATCH -e sbatch_logs.out                  # Name of stderr output log file (%j expands to jobID)
-#SBATCH --nodes=2                                 # Total number of nodes requested
-#SBATCH --ntasks-per-node=8                       # Total number of task requested
+#SBATCH --nodes=1                                 # Total number of nodes requested
+#SBATCH --ntasks-per-node=4                       # Total number of task requested
 #SBATCH --cpus-per-task=8                        # Total number of cores requested
 #SBATCH --mem=512G
 #SBATCH -t 720:00:00                          # Time limit (hh:mm:ss)
-#SBATCH --gpus-per-node=8                       # Specify a list of generic consumable resources (per node)
+#SBATCH --gpus-per-node=4                       # Specify a list of generic consumable resources (per node)
 ########
 
 # ******************************************************************************************
@@ -27,15 +27,17 @@ export WORLD_SIZE=$(($SLURM_NNODES * $SLURM_JOB_NUM_NODES))
 export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
 # ******************************************************************************************
 
-
+export IF_TRAIN=True
 export CKPT_NAME="cambrian-8b-pretrain" &&
 export CKPT_DIR="/public/home/seg_test/cambrian/checkpoints/$CKPT_NAME" &&
 
-#env viarables used in the program need to be added here
 export DS_ENV_FILE="$(pwd)/scripts/slurm/.deepspeed_env"
 
 export _ROOT_DIR_="/public/home/seg_test/"
+export SWANLAB_API="MDG9pjBBM7cq5QGvOG90l"
+python -c "import swanlab; swanlab.login(api_key='$SWANLAB_API')"
 
+env > $DS_ENV_FILE
 
 deepspeed \
     --num_nodes $SLURM_JOB_NUM_NODES \
@@ -90,7 +92,7 @@ deepspeed \
     --dataloader_num_workers 4 \
     --lazy_preprocess True \
     --run_name $CKPT_NAME \
-    --report_to wandb
+    --report_to swanlab
 
 #CKPT_PATH=checkpoints/$CKPT_NAME
 CKPT_PATH=$CKPT_DIR
