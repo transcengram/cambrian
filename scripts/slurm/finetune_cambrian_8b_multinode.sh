@@ -10,7 +10,12 @@
 #SBATCH --gpus-per-node=8                       # Specify a list of generic consumable resources (per node)
 ########
 
+original_vars=$(mktemp)
+env > $original_vars
+
+# All env variables used in the training should be set below
 # ******************************************************************************************
+# Used for multi-node setting
 export PATH=/public/home/seg_test/zgr/bin/pdsh/bin:$PATH
 mkdir -p slurm_tmp
 export HOSTFILE="./slurm_tmp/hostfile${SLURM_JOB_ID}"
@@ -26,18 +31,25 @@ export WORLD_SIZE=$(($SLURM_NNODES * $SLURM_JOB_NUM_NODES))
 
 export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
 # ******************************************************************************************
-
+# Used for Training
 export IF_TRAIN=True
-export CKPT_NAME="cambrian-8b-finetune" &&
-export CKPT_DIR="/public/home/seg_test/cambrian/checkpoints/$CKPT_NAME" &&
+export CKPT_NAME="cambrian-8b-finetune"
+export CKPT_DIR="$(pwd)/checkpoints/$CKPT_NAME"
 
 export DS_ENV_FILE="$(pwd)/scripts/slurm/.deepspeed_env"
 
 export _ROOT_DIR_="/public/home/seg_test/"
 export SWANLAB_API="MDG9pjBBM7cq5QGvOG90l"
 python -c "import swanlab; swanlab.login(api_key='$SWANLAB_API')"
-
-env > $DS_ENV_FILE
+# ******************************************************************************************
+# save env variables set in the script to deepspeed env file
+current_vars=$(mktemp)
+env > $current_vars
+new_vars=$(comm -13 <(sort "$original_vars") <(sort "$current_vars"))
+echo "$new_vars" > $DS_ENV_FILE
+# ******************************************************************************************
+#hack triton bug
+rm -rf ~/.triton/cache
 
 deepspeed \
     --num_nodes $SLURM_JOB_NUM_NODES \
