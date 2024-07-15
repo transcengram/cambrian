@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -J cambrian_debug  # Job name
-#SBATCH -o sbatch_logs.out                  # Name of stdout output log file (%j expands to jobID)
-#SBATCH -e sbatch_logs.out                  # Name of stderr output log file (%j expands to jobID)
+#SBATCH -o sbatch_logs/finetune_sbatch_logs.out                   # Name of stdout output log file (%j expands to jobID)
+#SBATCH -e sbatch_logs/finetune_sbatch_logs.out                   # Name of stderr output log file (%j expands to jobID)
 #SBATCH --nodes=1                                 # Total number of nodes requested
 #SBATCH --ntasks=8                                     # Total number of task requested
 #SBATCH --cpus-per-task=16                        # Total number of cores requested
@@ -11,17 +11,17 @@
 ########
 
 export WANDB_BASE_URL="http://10.10.10.26:8080"
-export WANDB_API_KEY="local-1d1a38070771d4b60e996cf2ac75859f268ada0e"
+export WANDB_API_KEY="923330fb14ece7d2a4cbfff8abc33d26abefb7dc"
 export WANDB_PROJECT="cambrian"
-#export WANDB_MODE="offline"
 export WANDB_NAME="cambrian-8b-finetune"
-#export WANDB_MODE="offline"
+export WANDB_MODE="offline"
 
 export IF_TRAIN=True
-export _ROOT_DIR_="/public/home/seg_test/"
 
+export _ROOT_DIR_="/public/home/seg_test/" &&
+export CKPT_DIR_PROJECT="$_ROOT_DIR_/cambrian/test_single_node_checkpoints/"  &&
 export CKPT_NAME="cambrian-8b-finetune" &&
-export CKPT_DIR="$_ROOT_DIR_/lby/cambrian/checkpoints/$CKPT_NAME" &&
+export CKPT_DIR="$CKPT_DIR_PROJECT/$CKPT_NAME"
 
 deepspeed cambrian/train/train_gpu.py \
     --deepspeed ./scripts/zero2.json \
@@ -29,7 +29,7 @@ deepspeed cambrian/train/train_gpu.py \
     --version v1 \
     --data_path "$_ROOT_DIR_/zgr/data/Cambrian-10M/jsons/Cambrian7M_withsystemprompt.jsonl" \
     --image_folder "$_ROOT_DIR_/zgr/data/Cambrian-10M/" \
-    --pretrain_mm_mlp_adapter "$_ROOT_DIR_/lby/cambrian/checkpoints/cambrian-8b-pretrain/mm_projector.bin" \
+    --pretrain_mm_mlp_adapter "$CKPT_DIR_PROJECT/cambrian-8b-pretrain/mm_projector.bin" \
     --vision_tower_aux_list '["siglip/CLIP-ViT-SO400M-14-384", "openai/clip-vit-large-patch14-336", "facebook/dinov2-giant-res378", "clip-convnext-XXL-multi-stage"]' \
     --vision_tower_aux_token_len_list '[576, 576, 576, 9216]' \
     --image_token_len 576 \
@@ -82,4 +82,4 @@ fi
 #echo "Training finished. Syncing checkpoints to GCS..."
 #gcloud alpha storage rsync $CKPT_PATH gs://us-central2-storage/cambrian/checkpoints/$CKPT_NAME
 echo "Training (Finetune) finished."
-echo "Syncing finished. Checkpoints are now available at $CKPT_DIR"
+echo "Checkpoints are now available at $CKPT_DIR"
