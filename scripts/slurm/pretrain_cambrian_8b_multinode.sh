@@ -2,12 +2,12 @@
 #SBATCH -J cambrian_debug  # Job name
 #SBATCH -o sbatch_logs.out                  # Name of stdout output log file (%j expands to jobID)
 #SBATCH -e sbatch_logs.out                  # Name of stderr output log file (%j expands to jobID)
-#SBATCH --nodes=1                                 # Total number of nodes requested
-#SBATCH --ntasks-per-node=4                       # Total number of task requested
+#SBATCH --nodes=2                                 # Total number of nodes requested
+#SBATCH --ntasks-per-node=8                       # Total number of task requested
 #SBATCH --cpus-per-task=8                        # Total number of cores requested
 #SBATCH --mem=512G
 #SBATCH -t 720:00:00                          # Time limit (hh:mm:ss)
-#SBATCH --gpus-per-node=4                       # Specify a list of generic consumable resources (per node)
+#SBATCH --gpus-per-node=8                       # Specify a list of generic consumable resources (per node)
 ########
 
 # ******************************************************************************************
