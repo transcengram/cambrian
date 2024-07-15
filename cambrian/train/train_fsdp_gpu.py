@@ -48,7 +48,7 @@ from cambrian import conversation as conversation_lib
 
 from cambrian.utils import IS_XLA_AVAILABLE
 from cambrian.mm_utils import tokenizer_image_token, tokenizer_image_token_llama3
-from cambrian.train.wandb_nan_alert_callback import NanInfAlertWandbCallback
+from swanlab.integration.huggingface import SwanLabCallback
 from cambrian.model import CambrianLlamaForCausalLM, CambrianMistralForCausalLM
 from cambrian.model.language_model.cambrian_phi3 import CambrianPhi3ForCausalLM
 from PIL import Image
@@ -956,6 +956,8 @@ class LazySupervisedDataset(Dataset):
                 with open(self.data_path, 'r') as file:
                     for idx, line in enumerate(tqdm(file)):
                         data.append(json.loads(line.strip()))
+                        if idx>1000:
+                            break
             self.data_dict_list = data
             return self.data_dict_list
 
@@ -1784,16 +1786,6 @@ def train(attn_implementation=None):
 
     # if training_args.bf16:
     #     model = model.to(dtype=torch.bfloat16)
-    '''
-    callbacks = []
-
-    if "wandb" in training_args.report_to:
-        wandb_nan_callback = NanInfAlertWandbCallback(metrics=["loss"])
-        callbacks.append(wandb_nan_callback)
-        # rm wandb from training_args.report_to so it doesn't get passed to the Trainer
-        training_args.report_to.remove("wandb")
-        assert "wandb" not in training_args.report_to, training_args.report_to
-    '''
     # print("\n\n\nbefore \n")
     # for name, param in model.named_parameters():
     #     print(f"{name}: {param.dtype}, {param.shape}")
@@ -1802,9 +1794,14 @@ def train(attn_implementation=None):
     # print(training_args)
 
     log_rank0("Configuring trainer...")
+    callback = None
+    if "swanlab" in training_args.report_to:
+        callback = [SwanLabCallback(project="Cambrian",experiment_name=training_args.run_name)]
+        training_args.report_to.remove("swanlab")
     trainer = CambrianTrainer(model=model,
                     tokenizer=tokenizer,
                     args=training_args,
+                    callbacks=callback,
                     **data_module)
 
     # print("\n\n\nafter \n")

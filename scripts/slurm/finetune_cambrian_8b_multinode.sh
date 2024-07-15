@@ -27,15 +27,17 @@ export WORLD_SIZE=$(($SLURM_NNODES * $SLURM_JOB_NUM_NODES))
 export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
 # ******************************************************************************************
 
-
+export IF_TRAIN=True
 export CKPT_NAME="cambrian-8b-finetune" &&
 export CKPT_DIR="/public/home/seg_test/cambrian/checkpoints/$CKPT_NAME" &&
 
-#env viarables used in the program need to be added here
 export DS_ENV_FILE="$(pwd)/scripts/slurm/.deepspeed_env"
 
 export _ROOT_DIR_="/public/home/seg_test/"
+export SWANLAB_API="MDG9pjBBM7cq5QGvOG90l"
+python -c "import swanlab; swanlab.login(api_key='$SWANLAB_API')"
 
+env > $DS_ENV_FILE
 
 deepspeed \
     --num_nodes $SLURM_JOB_NUM_NODES \
