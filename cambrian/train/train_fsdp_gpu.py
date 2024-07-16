@@ -301,7 +301,7 @@ def safe_save_model_for_hf_trainer(trainer: transformers.Trainer,
 
     trainer._save(output_dir)
 
-   
+
 def smart_tokenizer_and_embedding_resize(
     special_tokens_dict: Dict,
     tokenizer: transformers.PreTrainedTokenizer,
@@ -456,7 +456,7 @@ def preprocess_llama_3(
         total_len = int(target.ne(tokenizer.pad_token_id).sum())
 
         rounds = conversation.split("<|eot_id|>")
-        
+
         cur_len = 0
 
         for i, rou in enumerate(rounds):
@@ -464,7 +464,7 @@ def preprocess_llama_3(
                 break
 
             rou += sep
-            
+
             # System Prompt
             if i == 0:
                 round_len = len(tokenizer(rou).input_ids)
@@ -487,7 +487,7 @@ def preprocess_llama_3(
                 target[cur_len : cur_len + 3] = IGNORE_INDEX
                 cur_len += round_len
 
-            
+
         target[cur_len:] = IGNORE_INDEX
 
         if cur_len < tokenizer.model_max_length:
@@ -497,7 +497,7 @@ def preprocess_llama_3(
                     f"WARNING: tokenization mismatch: {cur_len} vs. {total_len}."
                     f" (ignored)"
                 )
-        
+
     return dict(
         input_ids=input_ids,
         labels=targets,
@@ -832,7 +832,7 @@ def preprocess_phi3(
             re_rounds.append(conv.sep.join(rounds[conv_idx:conv_idx+2]))    # user + gpt
         cur_len = 1
         target[:cur_len] = IGNORE_INDEX
-        
+
         for i, rou in enumerate(re_rounds):
             if rou == "":
                 break
@@ -898,7 +898,7 @@ def preprocess(
         return preprocess_mpt(sources, tokenizer, has_image=has_image)
     if conversation_lib.default_conversation.version == "phi3":
         return preprocess_phi3(sources, tokenizer, has_image=has_image)
-    
+
     # add end signal and concatenate together
     conversations = []
     for source in sources:
@@ -939,34 +939,59 @@ class LazySupervisedDataset(Dataset):
         self.tokenizer = tokenizer
         self.data_path = data_path
         self.data_args = data_args
+
+        data_name = os.path.splitext(os.path.basename(self.data_path))[0]
+        self.dir_of_cache_of_data_length = f"/public/home/seg_test/cambrian/cache/{data_name}"
+        os.makedirs(self.dir_of_cache_of_data_length, exist_ok=True)
+        print("*" * 50, f"Rank: {torch.distributed.get_rank()}", "*" * 50)
+        print(f"path_of_cache_of_data_length: {self.dir_of_cache_of_data_length}")
+        print("*" * 50, f"Rank: {torch.distributed.get_rank()}", "*" * 50)
+
         self.length = self._get_length()
 
-        self.data_dict_list = self.load_data()
+        # self.data_dict_list = self.load_data()
 
-    def load_data(self):
+    def get_data_dict_list(self):
         try:
             return self.data_dict_list
         except Exception as e:
-            if self.data_path.endswith(".json"):
-                with open(self.data_path, 'r') as file:
-                    data = json.load(file)
-            else:
-                # self.data_path.endswith(".jsonl")
-                data = []
-                with open(self.data_path, 'r') as file:
-                    for idx, line in enumerate(tqdm(file)):
-                        data.append(json.loads(line.strip()))
-            self.data_dict_list = data
-            return self.data_dict_list
+            return self.load_data()
 
-    def _load_json_data(self):
-        with open(self.data_path, 'r') as file:
+    def load_data(self):
+        if self.data_path.endswith(".json"):
+            with open(self.data_path, 'r') as file:
+                data = json.load(file)
+        else:
+            # self.data_path.endswith(".jsonl")
+            data = []
+            with open(self.data_path, 'r') as file:
+                for idx, line in enumerate(tqdm(file)):
+                    data.append(json.loads(line.strip()))
+        self.data_dict_list = data
+        return self.data_dict_list
+
+    @staticmethod
+    def load_json_file(path):
+        with open(path, 'r') as file:
             data = json.load(file)
         return data
 
+    @staticmethod
+    def dump_json_file(data, path):
+        with open(path, 'w') as file:
+            json.dump(data, file)
+
     def _get_length(self):
         """Calculates the number of samples in the .jsonl file."""
-        return len(self.load_data())
+        path = os.path.join(self.dir_of_cache_of_data_length, "number_of_samples.json")
+        try:
+            length = self.load_json_file(path)["l"]
+            print("Loaded number_of_samples from cache")
+        except:
+            length = len(self.get_data_dict_list())
+            print("Dumping number_of_samples to cache...")
+            self.dump_json_file(dict(l=length), path)
+        return length
 
     def __len__(self):
         """Returns the number of samples in the dataset."""
@@ -978,15 +1003,31 @@ class LazySupervisedDataset(Dataset):
             # Return cached values if already computed
             return self.length_list, self.modality_length_list
 
-        self.length_list = []
-        self.modality_length_list = []
+        path = os.path.join(self.dir_of_cache_of_data_length, "length_of_conversations.json")
+        try:
+            temp = self.load_json_file(path)
+            self.length_list = temp["length_list"]
+            self.modality_length_list = temp["modality_length_list"]
+            print("Loaded length of conversations from cache")
+        except:
+            self.length_list = []
+            self.modality_length_list = []
 
-        for sample in self.data_dict_list:
-            img_tokens = self.data_args.image_token_len if self._has_image(sample) else 0
-            cur_len = sum(len(conv['value'].split()) for conv in sample['conversations'])
-            self.length_list.append(cur_len + img_tokens)
-            modality_len = cur_len if 'image' in sample else -cur_len
-            self.modality_length_list.append(modality_len)
+            for sample in self.get_data_dict_list():
+                img_tokens = self.data_args.image_token_len if self._has_image(sample) else 0
+                cur_len = sum(len(conv['value'].split()) for conv in sample['conversations'])
+                self.length_list.append(cur_len + img_tokens)
+                modality_len = cur_len if 'image' in sample else -cur_len
+                self.modality_length_list.append(modality_len)
+
+            print("Dumping length of conversations to cache...")
+            self.dump_json_file(
+                dict(
+                    length_list=self.length_list,
+                    modality_length_list=self.modality_length_list
+                ),
+                path
+            )
         return self.length_list, self.modality_length_list
 
     @property
@@ -1006,7 +1047,7 @@ class LazySupervisedDataset(Dataset):
         # sources = self.list_data_dict[i]
 
         # t = time.time()
-        sources = self.data_dict_list[i]
+        sources = self.get_data_dict_list()[i]
         # print(f"Loading dataset[{i}] takes {time.time() - t}s.")
 
         dat = sources
@@ -1128,7 +1169,7 @@ def prepare_image_info(image_size, image_token_len, newline=False):
     position_ids = attention_mask.cumsum(0)-1
     return attention_mask, position_ids
 
-    
+
 
 def prepare_multimodal_data(input_ids, labels, attention_mask, image_sizes, image_token_len=576, image_aux_token_len_list=[192*192], max_length=2048):
     input_ids_im_replaced = []
@@ -1143,14 +1184,14 @@ def prepare_multimodal_data(input_ids, labels, attention_mask, image_sizes, imag
         num_images = (cur_input_ids == IMAGE_TOKEN_INDEX).sum()
         assert num_images == 1, num_images
         image_size = image_sizes[batch_idx]
-        
+
         image_token_indices = [-1] + torch.where(cur_input_ids == IMAGE_TOKEN_INDEX)[0].tolist() + [cur_input_ids.shape[0]]
 
         cur_input_ids_im_replaced = []
         cur_labels_im_replaced = []
         cur_attention_mask_im_replaced = []
         cur_position_ids_im_replaced = []
-        
+
         cur_labels = labels[batch_idx]
         cur_attention_mask = attention_mask[batch_idx]
         index = 0
@@ -1161,7 +1202,7 @@ def prepare_multimodal_data(input_ids, labels, attention_mask, image_sizes, imag
             cur_attention_mask_im_replaced.append(cur_attention_mask[image_token_indices[i]+1:image_token_indices[i+1]])
             cur_position_ids_im_replaced.append(torch.arange(index, index+image_token_indices[i+1]-(image_token_indices[i]+1), dtype=torch.long, device=cur_input_ids.device))
             index += image_token_indices[i+1]-(image_token_indices[i]+1)
-            
+
             if i < len(image_token_indices) - 2:
                 num_tokens_per_side = int(image_token_len**0.5)
                 image_token_len_with_newline = image_token_len + num_tokens_per_side
@@ -1180,7 +1221,7 @@ def prepare_multimodal_data(input_ids, labels, attention_mask, image_sizes, imag
                     cur_im_aux_attention_mask[cur_im_aux_attention_mask.sum(dim=1) == 0] = True
                     im_aux_attention_masks_list[aux_i].append(cur_im_aux_attention_mask)
                 cur_im_position_ids += index
-                
+
                 if cur_attention_mask[image_token_indices[i+1]]:
                     cur_attention_mask_im_replaced.append(cur_im_attention_mask)
                     cur_position_ids_im_replaced.append(cur_im_position_ids.to(torch.long))
@@ -1190,12 +1231,12 @@ def prepare_multimodal_data(input_ids, labels, attention_mask, image_sizes, imag
                     image_token_len_with_newline = image_token_len + num_tokens_per_side
                     cur_attention_mask_im_replaced.append(torch.full((image_token_len_with_newline,), 0, device=cur_attention_mask.device, dtype=cur_attention_mask.dtype))
                     cur_position_ids_im_replaced.append(torch.full((image_token_len_with_newline,), 0, device=cur_input_ids.device, dtype=torch.long))
-        
+
         input_ids_im_replaced.append(torch.cat(cur_input_ids_im_replaced))
         labels_im_replaced.append(torch.cat(cur_labels_im_replaced))
         attention_mask_im_replaced.append(torch.cat(cur_attention_mask_im_replaced))
         position_ids_im_replaced.append(torch.cat(cur_position_ids_im_replaced))
-    
+
     # Truncate sequences to max length as image embeddings can make the sequence longer
     new_input_ids = [x[0:max_length] for x in input_ids_im_replaced]
     new_labels = [x[0:max_length] for x in labels_im_replaced]
@@ -1228,7 +1269,7 @@ class DataCollatorForSupervisedDataset(object):
                                   for key in ("input_ids", "labels"))
         max_length = self.tokenizer.model_max_length
 
-        padding_side = self.tokenizer.padding_side 
+        padding_side = self.tokenizer.padding_side
 
         # print_rank0("Pad token id is", self.tokenizer.pad_token_id)
 
@@ -1308,7 +1349,7 @@ def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer,
                 data_collator=data_collator)
 
 
-# TPU Note:The TorchXLA FSDP only takes in FP32 weight. This will create an issue when you load a very large model (>30b params) on TPU in FP32. 
+# TPU Note:The TorchXLA FSDP only takes in FP32 weight. This will create an issue when you load a very large model (>30b params) on TPU in FP32.
 # TPU-V4, for example, has 100GB of memory, and a 30b model will take up at least 120GB of memory. So the solution here is to load the model in bf16.
 # Then, we rewrote the FSDP sharding code to convert the bf16 weights to FP32 weights only when shard the weight. Hence, we can use minimal memory to load and shard the model on TPU.
 
@@ -1445,7 +1486,7 @@ if IS_XLA_AVAILABLE:
 def train(attn_implementation=None):
 
     global local_rank
-    
+
     # log_rank0(f"Training on index {INDEX}. Local rank: {local_rank}")
 
     parser = transformers.HfArgumentParser(
@@ -1472,7 +1513,7 @@ def train(attn_implementation=None):
             logger.warning(f"per_device_train_batch_size is correctly set to {training_args.per_device_train_batch_size} with world_size {world_size} to match train_batch_size {training_args.batch_size}")
             logger.warning(f"train_batch_size is {training_args.train_batch_size}")
 
-    
+
     # TPU Note, the original LLaMA RMSNorm implementation has a bug here, the dtype conversion is not correct. It is ok in GPU but kills TPU training.
     def forward(self, hidden_states):
         input_dtype = hidden_states.dtype
@@ -1535,7 +1576,7 @@ def train(attn_implementation=None):
         # data_args.image_token_len = model_args.image_token_len
         model_args.image_position = data_args.image_position
 
-        
+
         # Assuming model_args.model_name_or_path is a string that includes the model size
         model_name = model_args.model_name_or_path
 
@@ -1570,7 +1611,7 @@ def train(attn_implementation=None):
             transformers.models.mistral.modeling_mistral.MistralRMSNorm.forward = forward
         elif "phi-3" in model_name.lower():
             logger.warning(f"Vision tower, loading CambrianPhi3ForCausalLM: {model_args.model_name_or_path}")
-            
+
             # replace training_args.fsdp_config.transformer_layer_cls_to_wrap with MistralDecoderLayer
             if (
                 hasattr(training_args, 'fsdp_config') and
@@ -1706,7 +1747,7 @@ def train(attn_implementation=None):
         vision_tower_aux_list = None
         if model_args.vision_tower_aux_list is not None:
             vision_tower_aux_list = model.get_vision_tower_aux_list()
-        
+
         if not training_args.unfreeze_mm_vision_tower:
             # vision_tower.to(dtype=torch.bfloat16, device=training_args.device)
             if vision_tower_aux_list is not None:
@@ -1814,7 +1855,7 @@ def train(attn_implementation=None):
         trainer.train()
 
     log_rank0(f"Training finished: {training_args.output_dir}")
-    
+
     trainer.save_state()
 
     model.config.use_cache = True
