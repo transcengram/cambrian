@@ -940,22 +940,8 @@ class LazySupervisedDataset(Dataset):
         self.data_path = data_path
         self.data_args = data_args
 
-        data_name = os.path.splitext(os.path.basename(self.data_path))[0]
-        self.dir_of_cache_of_data_length = f"/public/home/seg_test/cambrian/cache/{data_name}"
-        os.makedirs(self.dir_of_cache_of_data_length, exist_ok=True)
-        print("*" * 50, f"Rank: {torch.distributed.get_rank()}", "*" * 50)
-        print(f"path_of_cache_of_data_length: {self.dir_of_cache_of_data_length}")
-        print("*" * 50, f"Rank: {torch.distributed.get_rank()}", "*" * 50)
-
+        self.data_dict_list = self.load_data()
         self.length = self._get_length()
-
-        # self.data_dict_list = self.load_data()
-
-    def get_data_dict_list(self):
-        try:
-            return self.data_dict_list
-        except Exception as e:
-            return self.load_data()
 
     def load_data(self):
         if self.data_path.endswith(".json"):
@@ -967,31 +953,11 @@ class LazySupervisedDataset(Dataset):
             with open(self.data_path, 'r') as file:
                 for idx, line in enumerate(tqdm(file)):
                     data.append(json.loads(line.strip()))
-        self.data_dict_list = data
-        return self.data_dict_list
-
-    @staticmethod
-    def load_json_file(path):
-        with open(path, 'r') as file:
-            data = json.load(file)
         return data
-
-    @staticmethod
-    def dump_json_file(data, path):
-        with open(path, 'w') as file:
-            json.dump(data, file)
 
     def _get_length(self):
         """Calculates the number of samples in the .jsonl file."""
-        path = os.path.join(self.dir_of_cache_of_data_length, "number_of_samples.json")
-        try:
-            length = self.load_json_file(path)["l"]
-            print("Loaded number_of_samples from cache")
-        except:
-            length = len(self.get_data_dict_list())
-            print("Dumping number_of_samples to cache...")
-            self.dump_json_file(dict(l=length), path)
-        return length
+        return len(self.data_dict_list)
 
     def __len__(self):
         """Returns the number of samples in the dataset."""
@@ -1003,31 +969,16 @@ class LazySupervisedDataset(Dataset):
             # Return cached values if already computed
             return self.length_list, self.modality_length_list
 
-        path = os.path.join(self.dir_of_cache_of_data_length, "length_of_conversations.json")
-        try:
-            temp = self.load_json_file(path)
-            self.length_list = temp["length_list"]
-            self.modality_length_list = temp["modality_length_list"]
-            print("Loaded length of conversations from cache")
-        except:
-            self.length_list = []
-            self.modality_length_list = []
+        self.length_list = []
+        self.modality_length_list = []
 
-            for sample in self.get_data_dict_list():
-                img_tokens = self.data_args.image_token_len if self._has_image(sample) else 0
-                cur_len = sum(len(conv['value'].split()) for conv in sample['conversations'])
-                self.length_list.append(cur_len + img_tokens)
-                modality_len = cur_len if 'image' in sample else -cur_len
-                self.modality_length_list.append(modality_len)
+        for sample in self.data_dict_list:
+            img_tokens = self.data_args.image_token_len if self._has_image(sample) else 0
+            cur_len = sum(len(conv['value'].split()) for conv in sample['conversations'])
+            self.length_list.append(cur_len + img_tokens)
+            modality_len = cur_len if 'image' in sample else -cur_len
+            self.modality_length_list.append(modality_len)
 
-            print("Dumping length of conversations to cache...")
-            self.dump_json_file(
-                dict(
-                    length_list=self.length_list,
-                    modality_length_list=self.modality_length_list
-                ),
-                path
-            )
         return self.length_list, self.modality_length_list
 
     @property
@@ -1044,10 +995,8 @@ class LazySupervisedDataset(Dataset):
         return "image" in sample and not str(sample['image']) in ['', 'None', 'none', 'nan']
 
     def __getitem__(self, i) -> Dict[str, torch.Tensor]:
-        # sources = self.list_data_dict[i]
-
         # t = time.time()
-        sources = self.get_data_dict_list()[i]
+        sources = self.data_dict_list[i]
         # print(f"Loading dataset[{i}] takes {time.time() - t}s.")
 
         dat = sources
