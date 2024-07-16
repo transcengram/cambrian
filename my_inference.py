@@ -1,15 +1,4 @@
 import argparse
-import os
-
-os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
-
-import json
-import random
-import re
-import torch
-import numpy as np
-from tqdm import tqdm
-import shortuuid
 
 from cambrian.constants import IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
 from cambrian.conversation import conv_templates, SeparatorStyle
@@ -19,13 +8,12 @@ from cambrian.mm_utils import tokenizer_image_token, process_images, get_model_n
 from torch.utils.data import Dataset, DataLoader
 
 from PIL import Image
-import math
 
 # cambrian-phi3-3b
 # conv_mode = "phi3"
 
 # cambrian-8b
-conv_mode = "llama_3" 
+# conv_mode = "llama_3"
 
 # cambrian-34b
 # conv_mode = "chatml_direct"
@@ -33,7 +21,29 @@ conv_mode = "llama_3"
 # cambrian-13b
 # conv_mode = "vicuna_v1"
 
-def process(image, question, tokenizer, image_processor, model_config):
+
+import torch
+import numpy as np
+import random
+seed = 42
+torch.manual_seed(seed)
+np.random.seed(seed)
+random.seed(seed)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
+
+def get_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--conv_mode", default="llama_3", type=str)
+    parser.add_argument("--model_name", required=True, type=str)
+    parser.add_argument("--model_path", default=None, type=str)
+    parser.add_argument("--model_base", default=None, type=str)
+
+    return parser
+
+
+def process(image, question, tokenizer, image_processor, model_config, conv_mode):
     qs = question
 
     if model_config.mm_use_im_start_end:
@@ -53,42 +63,42 @@ def process(image, question, tokenizer, image_processor, model_config):
 
     return input_ids, image_tensor, image_size, prompt
 
-import torch
-import numpy as np
-import random
-seed = 42
-torch.manual_seed(seed)
-np.random.seed(seed)
-random.seed(seed)
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
 
-# model_path = os.path.expanduser("nyu-visionx/cambrian-8b")
-# model_name = get_model_name_from_path(model_path)
-model_path = "/public/home/seg_test/lby/cambrian/checkpoints/cambrian-8b-finetune"
-model_name = "cambrian-8b-finetune"
-tokenizer, model, image_processor, context_len = load_pretrained_model(model_path, None, model_name)
+def main():
 
-temperature = 0
+    args = get_parser().parse_args()
+    print(args)
 
-while True:
-    image_path = input("image path: ")
-    image = Image.open(image_path).convert('RGB')
-    question = input("question: ")
+    # model_path = os.path.expanduser("nyu-visionx/cambrian-8b")
+    # model_name = get_model_name_from_path(model_path)
+    # model_path = "/public/home/seg_test/lby/cambrian/checkpoints/cambrian-8b-finetune"
+    # model_name = "cambrian-8b-finetune"
+    tokenizer, model, image_processor, context_len = load_pretrained_model(args.model_path, args.model_base, args.model_name)
 
-    input_ids, image_tensor, image_sizes, prompt = process(image, question, tokenizer, image_processor, model.config)
-    input_ids = input_ids.to(device='cuda', non_blocking=True)
-    with torch.inference_mode():
-        output_ids = model.generate(
-            input_ids,
-            images=image_tensor,
-            image_sizes=image_sizes,
-            do_sample=True if temperature > 0 else False,
-            temperature=temperature,
-            num_beams=1,
-            max_new_tokens=512,
-            use_cache=True)
+    temperature = 0
 
-    outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
+    while True:
+        image_path = input("image path: ")
+        image = Image.open(image_path).convert('RGB')
+        question = input("question: ")
 
-    print(outputs)
+        input_ids, image_tensor, image_sizes, prompt = process(image, question, tokenizer, image_processor, model.config, args.conv_mode)
+        input_ids = input_ids.to(device='cuda', non_blocking=True)
+        with torch.inference_mode():
+            output_ids = model.generate(
+                input_ids,
+                images=image_tensor,
+                image_sizes=image_sizes,
+                do_sample=True if temperature > 0 else False,
+                temperature=temperature,
+                num_beams=1,
+                max_new_tokens=512,
+                use_cache=True)
+
+        outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
+
+        print(outputs)
+
+
+if __name__ == '__main__':
+    main()
