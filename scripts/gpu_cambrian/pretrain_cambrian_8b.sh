@@ -1,13 +1,13 @@
 #!/bin/bash
 
 export WANDB_NAME="cambrian-8b-pretrain"
-#export WANDB_MODE="offline"
+export WANDB_MODE="offline"
 
 export IF_TRAIN=True
 export _ROOT_DIR_="/public/home/seg_test/"
 
 export CKPT_NAME="cambrian-8b-pretrain" &&
-export CKPT_DIR="$_ROOT_DIR_/cambrian/checkpoints/$CKPT_NAME" &&
+export CKPT_DIR="$_ROOT_DIR_/cambrian/test_checkpoints/$CKPT_NAME" &&
 
 deepspeed cambrian/train/train_gpu.py \
     --deepspeed ./scripts/zero2.json \

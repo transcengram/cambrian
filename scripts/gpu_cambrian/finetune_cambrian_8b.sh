@@ -1,13 +1,13 @@
 #!/bin/bash
 
 export WANDB_NAME="cambrian-8b-finetune"
-#export WANDB_MODE="offline"
+export WANDB_MODE="offline"
 
 export IF_TRAIN=True
 export _ROOT_DIR_="/public/home/seg_test/"
 
 export CKPT_NAME="cambrian-8b-finetune" &&
-export CKPT_DIR="$_ROOT_DIR_/cambrian/checkpoints/$CKPT_NAME" &&
+export CKPT_DIR="$_ROOT_DIR_/cambrian/test_checkpoints/$CKPT_NAME" &&
 
 deepspeed cambrian/train/train_gpu.py \
     --deepspeed ./scripts/zero2.json \
@@ -15,7 +15,7 @@ deepspeed cambrian/train/train_gpu.py \
     --version v1 \
     --data_path "$_ROOT_DIR_/zgr/data/Cambrian-10M/jsons/Cambrian7M_withsystemprompt.jsonl" \
     --image_folder "$_ROOT_DIR_/zgr/data/Cambrian-10M/" \
-    --pretrain_mm_mlp_adapter "$_ROOT_DIR_/lby/cambrian/checkpoints/cambrian-8b-pretrain/mm_projector.bin" \
+    --pretrain_mm_mlp_adapter "$_ROOT_DIR_/cambrian/test_checkpoints/cambrian-8b-pretrain/mm_projector.bin" \
     --vision_tower_aux_list '["siglip/CLIP-ViT-SO400M-14-384", "openai/clip-vit-large-patch14-336", "facebook/dinov2-giant-res378", "clip-convnext-XXL-multi-stage"]' \
     --vision_tower_aux_token_len_list '[576, 576, 576, 9216]' \
     --image_token_len 576 \
