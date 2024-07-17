@@ -22,6 +22,7 @@ import copy
 import time
 from dataclasses import dataclass, field
 import json
+import orjson
 import logging
 import pathlib
 from typing import Dict, Optional, Sequence, List
@@ -56,8 +57,7 @@ from PIL import Image
 from ezcolorlog import root_logger as logger
 
 from packaging import version
-
-
+from concurrent.futures import ThreadPoolExecutor
 logger.setLevel(logging.WARNING)
 
 
@@ -933,40 +933,36 @@ class LazySupervisedDataset(Dataset):
 
     def __init__(self, data_path: str,
                  tokenizer: transformers.PreTrainedTokenizer,
-                 data_args: DataArguments):
+                 data_args: DataArguments,
+                 data:list=None):
         super(LazySupervisedDataset, self).__init__()
 
         self.tokenizer = tokenizer
         self.data_path = data_path
         self.data_args = data_args
-        self.length = self._get_length()
-
-        self.data_dict_list = self.load_data()
-
-    def load_data(self):
-        try:
-            return self.data_dict_list
-        except Exception as e:
-            if self.data_path.endswith(".json"):
-                with open(self.data_path, 'r') as file:
-                    data = json.load(file)
-            else:
-                # self.data_path.endswith(".jsonl")
-                data = []
-                with open(self.data_path, 'r') as file:
-                    for idx, line in enumerate(tqdm(file)):
-                        data.append(json.loads(line.strip()))
+        if data:
             self.data_dict_list = data
-            return self.data_dict_list
+        else:
+            self.data_dict_list = self.load_data(self.data_path)
+        self.length = len(self.data_dict_list)
+
+    @staticmethod
+    def load_data(data_path: str):
+        if data_path.endswith(".json"):
+            with open(data_path, 'r') as file:
+                data = json.load(file)
+        else:
+            # self.data_path.endswith(".jsonl")
+            data = []
+            with open(data_path, 'r') as file:
+                for idx,line in enumerate(tqdm(file)):
+                    data.append(orjson.loads(line.strip()))
+        return data
 
     def _load_json_data(self):
         with open(self.data_path, 'r') as file:
             data = json.load(file)
         return data
-
-    def _get_length(self):
-        """Calculates the number of samples in the .jsonl file."""
-        return len(self.load_data())
 
     def __len__(self):
         """Returns the number of samples in the dataset."""
@@ -1281,11 +1277,13 @@ class DataCollatorForSupervisedDataset(object):
 
 
 def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer,
-                                data_args) -> Dict:
+                                data_args,
+                                data=None) -> Dict:
     """Make dataset and collator for supervised fine-tuning."""
     train_dataset = LazySupervisedDataset(tokenizer=tokenizer,
                                 data_path=data_args.data_path,
-                                data_args=data_args)
+                                data_args=data_args,
+                                data=data)
     data_collator_kwargs = {
             'tokenizer': tokenizer,
         }
@@ -1445,7 +1443,6 @@ if IS_XLA_AVAILABLE:
 def train(attn_implementation=None):
 
     global local_rank
-    
     # log_rank0(f"Training on index {INDEX}. Local rank: {local_rank}")
 
     parser = transformers.HfArgumentParser(
@@ -1457,6 +1454,8 @@ def train(attn_implementation=None):
     local_rank = training_args.local_rank
     compute_dtype = (torch.float16 if training_args.fp16 else (torch.bfloat16 if training_args.bf16 else torch.float32))
 
+    with ThreadPoolExecutor(1) as executor:
+        future = executor.submit(LazySupervisedDataset.load_data, data_args.data_path)
     # verify that the train_batch_size is set correctly
     if training_args.batch_size is not None:
         if IS_XLA_AVAILABLE:
@@ -1780,7 +1779,8 @@ def train(attn_implementation=None):
 
     log_rank0("Configuring data module...")
     data_module = make_supervised_data_module(tokenizer=tokenizer,
-                                              data_args=data_args)
+                                              data_args=data_args,
+                                              data=future.result())
 
     # if training_args.bf16:
     #     model = model.to(dtype=torch.bfloat16)
