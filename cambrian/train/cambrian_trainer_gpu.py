@@ -314,190 +314,21 @@ class CambrianTrainer(Trainer):
                         logger.debug(f"bitsandbytes: will optimize {module} in fp32")
                 logger.info(f"skipped: {skipped/2**20}M params")
         return self.optimizer
-    
-    def _load_rng_state(self, resume_from_checkpoint):
-        if resume_from_checkpoint is None:
-            return
-
-        # remove local path prefic if exists
-        if HOME_DIR in resume_from_checkpoint:
-            resume_from_checkpoint_clean = resume_from_checkpoint.replace(HOME_DIR, '')
-        else:
-            resume_from_checkpoint_clean = resume_from_checkpoint
-
-        # get worker details
-        rank = xm.get_ordinal()
-        world_size = xm.xrt_world_size()
-
-        # get path
-        RNG_NAME = f'rng_rank-{rank:08d}-of-{world_size:08d}-rng.pth'
-        RNG_PATH = os.path.join(resume_from_checkpoint_clean, RNG_NAME)
-
-        # Loading the model weights:
-        client = storage.Client()
-        bucket = client.get_bucket('us-central2-storage')
-        blob = bucket.blob(RNG_PATH)
-        blob_bytes = blob.download_as_bytes()
-        buffer = io.BytesIO(blob_bytes)
-        rng_dict = torch.load(buffer)
-
-        # Setting the seeds correctly
-        random.setstate(rng_dict["python"])
-        np.random.set_state(rng_dict["numpy"])
-        torch.random.set_rng_state(rng_dict["cpu"])
-        xm.set_rng_state(rng_dict["xla"])
-        print("rng state loaded")
-
-    def _load_optimizer_and_scheduler(self, resume_from_checkpoint):
-        if resume_from_checkpoint is None:
-            return
-
-        # remove local path prefix
-        if HOME_DIR in resume_from_checkpoint:
-            resume_from_checkpoint_clean = resume_from_checkpoint.replace(HOME_DIR, '')
-        else:
-            resume_from_checkpoint_clean = resume_from_checkpoint
-
-        # get worker details
-        rank = xm.get_ordinal()
-        world_size = xm.xrt_world_size()
-
-        # get path to file
-        WEIGHTS_NAME = "pytorch_model.bin"
-        SCHEDULER_NAME = "scheduler.pt"
-        SHARD_NAME_OPT = f'opt_rank-{rank:08d}-of-{world_size:08d}-{WEIGHTS_NAME}'
-        SHARD_NAME_PATH = os.path.join(resume_from_checkpoint_clean, SHARD_NAME_OPT)
-        LR_PATH = os.path.join(resume_from_checkpoint_clean, SCHEDULER_NAME)
-
-        # connect to gcloud bucket
-        client = storage.Client()
-        bucket = client.get_bucket('us-central2-storage')
-
-        # Loading opt state to each device
-        blob = bucket.blob(SHARD_NAME_PATH)
-        blob_bytes = blob.download_as_bytes()
-        buffer = io.BytesIO(blob_bytes)
-        optimizer_state = torch.load(buffer, map_location="cpu")
-        optimizer_state = optimizer_state['optimizer_state']
-
-        # Loading the schedule to each device
-        blob_lr = bucket.blob(LR_PATH)
-        blob_bytes_lr = blob_lr.download_as_bytes()
-        buffer_lr = io.BytesIO(blob_bytes_lr)
-        lr_scheduler_state = torch.load(buffer_lr)
-
-        # No need for this, since already inside XLA spawn?
-        # xm.send_cpu_data_to_device(optimizer_state, self.args.device)
-        # xm.send_cpu_data_to_device(lr_scheduler_state, self.args.device)
-
-        # Load state
-        self.optimizer.load_state_dict(optimizer_state)
-        self.lr_scheduler.load_state_dict(lr_scheduler_state)
-
-        logger.info(f"Optimizer state and scheduler successfully loaded from {SHARD_NAME_PATH}")
-        print("Loaded optimizer state successfully")
 
     def _load_from_checkpoint(self, resume_from_checkpoint, model=None):
-
-        if resume_from_checkpoint is None:
-            return
-
-        # Remove local path (we stored Train State here)
-        if HOME_DIR in resume_from_checkpoint:
-            resume_from_checkpoint_clean = resume_from_checkpoint.replace(HOME_DIR, '')
-        else:
-            resume_from_checkpoint_clean = resume_from_checkpoint
-
-        # Getting worker details
-        rank = xm.get_ordinal()
-        world_size = xm.xrt_world_size()
-
-        # Getting path to file on bucket
-        WEIGHTS_NAME = "pytorch_model.bin"
-        SHARD_NAME = f'weights_rank-{rank:08d}-of-{world_size:08d}-{WEIGHTS_NAME}'
-        SHARD_NAME_PATH = os.path.join(resume_from_checkpoint_clean, SHARD_NAME)
-
-
-        # Loading the model weights:
-        client = storage.Client()
-        bucket = client.get_bucket('us-central2-storage')
-        blob = bucket.blob(SHARD_NAME_PATH)
-        blob_bytes = blob.download_as_bytes()
-        buffer = io.BytesIO(blob_bytes)
-        state_dict = torch.load(buffer)
-        state_dict = state_dict["model"]
-
-        # self.model = self._wrap_model(self.model, )
-
-        # Saving to each worker  - NO NEED TO MOVE ANYTHING TO XLA
-        self.model.load_state_dict(state_dict)
-
-    def _save_checkpoint_ori(self, model, trial, metrics=None):
-
-        print("_save_checkpoint")
-
-        from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
-
-        # Names of files
-        TRAINING_ARGS_NAME = "training_args.bin"
-        WEIGHTS_NAME = "pytorch_model.bin"
-        SCHEDULER_NAME = "scheduler.pt"
-        TRAINER_STATE_NAME = "trainer_state.json"
-
-        checkpoint_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
-        run_dir = self._get_output_dir(trial=trial)
-        output_dir = os.path.join(run_dir, checkpoint_folder)
-        logger.info(f"Saving model checkpoint to {output_dir}")
-
-        model = self.model
-
-        # Save the model using DeepSpeed
-        model.save_pretrained(output_dir)
-
-        # Save optimizer state
-        opt_ckpt = {
-            'optimizer_state': self.optimizer.state_dict()
-        }
-        opt_ckpt_path = os.path.join(output_dir, 'optimizer.pt')
-        torch.save(opt_ckpt, opt_ckpt_path)
-
-        # Save LR scheduler state
-        lr_scheduler_state_dict = self.lr_scheduler.state_dict()
-        lr_path = os.path.join(output_dir, SCHEDULER_NAME)
-        torch.save(lr_scheduler_state_dict, lr_path)
-
-        # Save training arguments
-        train_args_path = os.path.join(output_dir, TRAINING_ARGS_NAME)
-        with open(train_args_path, 'wb') as f:
-            torch.save(self.args, f)
-
-        # Save trainer state
-        trainer_state_name_path = os.path.join(output_dir, TRAINER_STATE_NAME)
-        json_string = json.dumps(dataclasses.asdict(self.state), indent=2, sort_keys=True) + "\n"
-        with open(trainer_state_name_path, 'w') as f:
-            f.write(json_string)
-
-        # Save RNG states
-        rng_states = {
-            "python": random.getstate(),
-            "numpy": np.random.get_state(),
-            "cpu": torch.random.get_rng_state(),
-            "cuda": torch.cuda.get_rng_state()  # Save CUDA RNG state for GPU
-        }
-        rng_path = os.path.join(output_dir, 'rng.pth')
-        with open(rng_path, 'wb') as f:
-            torch.save(rng_states, f)
-
-    def _save_checkpoint(self, model, trial, metrics=None):
-        # print("_save_checkpoint")
-
         if getattr(self.args, "tune_mm_mlp_adapter", False):
-            from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
-            checkpoint_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
+            if model is None:
+                model = self.model
+            weights_file = os.path.join(resume_from_checkpoint, "mm_projector.bin")
+            state_dict = torch.load(weights_file, map_location="cpu",weights_only=True)
+            load_result =  model.load_state_dict(state_dict, strict=False)
+            del state_dict
+            self._issue_warnings_after_load(load_result)
+        else:
+            super(CambrianTrainer, self)._load_from_checkpoint(resume_from_checkpoint, model)
 
-            run_dir = self._get_output_dir(trial=trial)
-            output_dir = os.path.join(run_dir, checkpoint_folder)
-
+    def _save(self, output_dir: Optional[str] = None, state_dict=None):
+        if getattr(self.args, "tune_mm_mlp_adapter", False):
             # Only save Adapter
             keys_to_match = ['mm_projector', 'pos_emb', 'vision_sampler', 'vision_sampler_layers', 'vision_query',
                              'image_newline']
@@ -509,26 +340,13 @@ class CambrianTrainer(Trainer):
                 self.model.config.save_pretrained(output_dir)
                 torch.save(weight_to_save, os.path.join(output_dir, f'mm_projector.bin'))
         else:
-            super(CambrianTrainer, self)._save_checkpoint(model, trial, metrics)
-
-    def _save(self, output_dir: Optional[str] = None, state_dict=None):
-
-        print("_save")
-
-        if getattr(self.args, 'tune_mm_mlp_adapter', False):
-            pass
-        else:
             super(CambrianTrainer, self)._save(output_dir, state_dict)
 
     """Override to add custom logs"""
-
-    def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval):
-        # print("_maybe_log_save_evaluate")
-
+    def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval):
         if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
-            # if is_torch_tpu_available():
-            #     import torch_xla.core.xla_model as xm
-            #     xm.mark_step()
+            #if is_torch_xla_available():
+            #    xm.mark_step()
 
             logs: Dict[str, float] = {}
 
@@ -539,12 +357,12 @@ class CambrianTrainer(Trainer):
             tr_loss -= tr_loss
 
             logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
+            if grad_norm is not None:
+                logs["grad_norm"] = grad_norm.detach().item() if isinstance(grad_norm, torch.Tensor) else grad_norm
             logs["learning_rate"] = self._get_learning_rate()
-
             # Add custom logs
             if self.args.unfreeze_mm_vision_tower:
                 logs["mm_vision_tower_lr"] = self.optimizer.param_groups[2]['lr']
-
             self._total_loss_scalar += tr_loss_scalar
             self._globalstep_last_logged = self.state.global_step
             self.store_flos()
@@ -553,15 +371,7 @@ class CambrianTrainer(Trainer):
 
         metrics = None
         if self.control.should_evaluate:
-            metrics = self.evaluate(ignore_keys=ignore_keys_for_eval)
-            self._report_to_hp_search(trial, self.state.global_step, metrics)
-
-            # Run delayed LR scheduler now that metrics are populated
-            if isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                metric_to_check = self.args.metric_for_best_model
-                if not metric_to_check.startswith("eval_"):
-                    metric_to_check = f"eval_{metric_to_check}"
-                self.lr_scheduler.step(metrics[metric_to_check])
+            metrics = self._evaluate(trial, ignore_keys_for_eval)
 
         if self.control.should_save:
             self._save_checkpoint(model, trial, metrics=metrics)
