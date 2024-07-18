@@ -22,6 +22,7 @@ import copy
 import time
 from dataclasses import dataclass, field
 import json
+import orjson
 import logging
 import pathlib
 from typing import Dict, Optional, Sequence, List
@@ -56,8 +57,7 @@ from PIL import Image
 from ezcolorlog import root_logger as logger
 
 from packaging import version
-
-
+from concurrent.futures import ThreadPoolExecutor
 logger.setLevel(logging.WARNING)
 
 
@@ -173,8 +173,7 @@ class TrainingArguments(transformers.TrainingArguments):
     gcs_output_dir: Optional[str] = field(default=None)
     """gs://<bucket>/<prefix>"""
 
-    train_continue: bool = False
-    resume_from_checkpoint: Optional[str] = ""
+    resume:bool = field(default=False)
 
 def maybe_zero_3(param, ignore_status=False, name=None):
     from deepspeed import zero
@@ -248,52 +247,6 @@ def find_all_linear_names(model):
 
 def safe_save_model_for_hf_trainer(trainer: transformers.Trainer,
                                    output_dir: str):
-    """Collects the state dict and dump to disk."""
-    # output_dir = os.path.join('checkpoints', output_dir.split(os.sep)[-1])
-    """
-    output_dir may cause sth wrong when rel path
-    """
-    if getattr(trainer.args, "tune_mm_mlp_adapter", False):
-        # Only save Adapter
-        keys_to_match = ['mm_projector', 'pos_emb', 'vision_sampler', 'vision_sampler_layers', 'vision_query', 'image_newline']
-        if getattr(trainer.args, "use_im_start_end", False):
-            keys_to_match.extend(['embed_tokens', 'embed_in'])
-
-        weight_to_save = get_mm_adapter_state_maybe_zero_3(trainer.model.named_parameters(), keys_to_match)
-        if trainer.args.local_rank == 0 or trainer.args.local_rank == -1:
-            trainer.model.config.save_pretrained(output_dir)
-
-        if IS_XLA_AVAILABLE:
-            import torch_xla.core.xla_model as xm
-            ckpt_prefix = os.path.join(output_dir, "mm_projector")
-
-            os.makedirs(output_dir, exist_ok=True)
-            rank = xm.get_ordinal()
-            world_size = xm.xrt_world_size()
-            ckpt_path = f'{ckpt_prefix}_rank-{rank:08d}-of-{world_size:08d}.pth'
-            ckpt = {
-                'model': weight_to_save,
-                    'shard_metadata': trainer.model.get_shard_metadata()
-            }
-            os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
-            xm.save(ckpt, ckpt_path, master_only=False)
-            print(f'checkpoint saved to {ckpt_path}\n', end='')
-            return
-        else:
-            # raise NotImplementedError("Only XLA is supported for now.")
-            current_folder = output_dir.split('/')[-1]
-            parent_folder = os.path.dirname(output_dir)
-            if trainer.args.local_rank == 0 or trainer.args.local_rank == -1:
-                if current_folder.startswith('checkpoint-'):
-                    mm_projector_folder = os.path.join(parent_folder, "mm_projector")
-                    os.makedirs(mm_projector_folder, exist_ok=True)
-                    ckpt_path = os.path.join(mm_projector_folder, f'{current_folder}.bin')
-                else:
-                    ckpt_path = os.path.join(output_dir, "mm_projector.bin")
-                print(f'checkpoint saved to {ckpt_path}\n', end='')
-                torch.save(weight_to_save, ckpt_path)
-            return
-
     if trainer.deepspeed:
         torch.cuda.synchronize()
         trainer.save_model(output_dir)
@@ -933,31 +886,36 @@ class LazySupervisedDataset(Dataset):
 
     def __init__(self, data_path: str,
                  tokenizer: transformers.PreTrainedTokenizer,
-                 data_args: DataArguments):
+                 data_args: DataArguments,
+                 data:list=None):
         super(LazySupervisedDataset, self).__init__()
 
         self.tokenizer = tokenizer
         self.data_path = data_path
         self.data_args = data_args
+        if data:
+            self.data_dict_list = data
+        else:
+            self.data_dict_list = self.load_data(self.data_path)
+        self.length = len(self.data_dict_list)
 
-        self.data_dict_list = self.load_data()
-        self.length = self._get_length()
-
-    def load_data(self):
-        if self.data_path.endswith(".json"):
-            with open(self.data_path, 'r') as file:
+    @staticmethod
+    def load_data(data_path: str):
+        if data_path.endswith(".json"):
+            with open(data_path, 'r') as file:
                 data = json.load(file)
         else:
             # self.data_path.endswith(".jsonl")
             data = []
-            with open(self.data_path, 'r') as file:
-                for idx, line in enumerate(tqdm(file)):
-                    data.append(json.loads(line.strip()))
+            with open(data_path, 'r') as file:
+                for idx,line in enumerate(tqdm(file)):
+                    data.append(orjson.loads(line.strip()))
         return data
 
-    def _get_length(self):
-        """Calculates the number of samples in the .jsonl file."""
-        return len(self.data_dict_list)
+    def _load_json_data(self):
+        with open(self.data_path, 'r') as file:
+            data = json.load(file)
+        return data
 
     def __len__(self):
         """Returns the number of samples in the dataset."""
@@ -1271,11 +1229,13 @@ class DataCollatorForSupervisedDataset(object):
 
 
 def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer,
-                                data_args) -> Dict:
+                                data_args,
+                                data=None) -> Dict:
     """Make dataset and collator for supervised fine-tuning."""
     train_dataset = LazySupervisedDataset(tokenizer=tokenizer,
                                 data_path=data_args.data_path,
-                                data_args=data_args)
+                                data_args=data_args,
+                                data=data)
     data_collator_kwargs = {
             'tokenizer': tokenizer,
         }
@@ -1436,8 +1396,6 @@ def train(attn_implementation=None):
 
     global local_rank
 
-    # log_rank0(f"Training on index {INDEX}. Local rank: {local_rank}")
-
     parser = transformers.HfArgumentParser(
         (ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
@@ -1447,6 +1405,8 @@ def train(attn_implementation=None):
     local_rank = training_args.local_rank
     compute_dtype = (torch.float16 if training_args.fp16 else (torch.bfloat16 if training_args.bf16 else torch.float32))
 
+    with ThreadPoolExecutor(1) as executor:
+        future = executor.submit(LazySupervisedDataset.load_data, data_args.data_path)
     # verify that the train_batch_size is set correctly
     if training_args.batch_size is not None:
         if IS_XLA_AVAILABLE:
@@ -1770,7 +1730,8 @@ def train(attn_implementation=None):
 
     log_rank0("Configuring data module...")
     data_module = make_supervised_data_module(tokenizer=tokenizer,
-                                              data_args=data_args)
+                                              data_args=data_args,
+                                              data=future.result())
 
     # if training_args.bf16:
     #     model = model.to(dtype=torch.bfloat16)
@@ -1797,11 +1758,7 @@ def train(attn_implementation=None):
     #     print(f"{name}: {param.dtype}, {param.shape}")
     # print("\nafter \n")
 
-    if training_args.train_continue:
-        resume_from_checkpoint=training_args.resume_from_checkpoint
-        trainer.train(resume_from_checkpoint=resume_from_checkpoint)
-    else:
-        trainer.train()
+    trainer.train(resume_from_checkpoint=training_args.resume)
 
     log_rank0(f"Training finished: {training_args.output_dir}")
 
