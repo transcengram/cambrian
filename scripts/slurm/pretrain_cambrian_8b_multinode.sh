@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J cambrian_debug  # Job name
+#SBATCH -J cambrian  # Job name
 #SBATCH -o sbatch_logs.out                  # Name of stdout output log file (%j expands to jobID)
 #SBATCH -e sbatch_logs.out                  # Name of stderr output log file (%j expands to jobID)
 #SBATCH --nodes=2                                 # Total number of nodes requested
@@ -16,12 +16,23 @@ env > $original_vars
 # All env variables used in the training should be set below
 # ******************************************************************************************
 # Used for multi-node setting
+export SLURM_GPUS_PER_NODE=${SLURM_GPUS_PER_NODE:-8}
+export SLURM_JOB_NUM_NODES=${SLURM_JOB_NUM_NODES:-2}
+export SLURM_NNODES=${SLURM_NNODES:-8}
+export SLURM_JOBID=${SLURM_JOBID:-1000}
+
 export PATH=/public/home/seg_test/zgr/bin/pdsh/bin:$PATH
 mkdir -p slurm_tmp
-export HOSTFILE="./slurm_tmp/hostfile${SLURM_JOB_ID}"
-scontrol show hostnames $SLURM_JOB_NODELIS | while read NODE; do
-    echo "$NODE slots=$SLURM_GPUS_PER_NODE" >> $HOSTFILE
-done
+if [ -z "$SLURM_JOB_NODELIST" ]; then
+    export HOSTFILE="hostfile_temp"
+    export MASTER_ADDR=(hostname)
+else
+    export HOSTFILE="./slurm_tmp/hostfile${SLURM_JOB_ID}"
+    scontrol show hostnames $SLURM_JOB_NODELIST | while read NODE; do
+        echo "$NODE slots=$SLURM_GPUS_PER_NODE" >> $HOSTFILE
+    done
+    export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
+fi
 
 export RANK=$SLURM_PROCID
 export LOCAL_RANK=$SLURM_LOCALID
@@ -29,9 +40,9 @@ export LOCAL_RANK=$SLURM_LOCALID
 export MASTER_PORT=$(expr 10000 + $(echo -n $SLURM_JOBID | tail -c 4))
 export WORLD_SIZE=$(($SLURM_NNODES * $SLURM_JOB_NUM_NODES))
 
-export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
 # ******************************************************************************************
 # Used for Training
+export HF_ENDPOINT="https://hf-mirror.com"
 export IF_TRAIN=True
 export CKPT_NAME="cambrian-8b-pretrain"
 export CKPT_DIR="$(pwd)/checkpoints/$CKPT_NAME"
@@ -91,8 +102,8 @@ deepspeed \
     --gradient_accumulation_steps 2 \
     --evaluation_strategy "no" \
     --save_strategy "steps" \
-    --save_steps 1000 \
-    --save_total_limit 1 \
+    --save_steps 500 \
+    --save_total_limit 5 \
     --learning_rate 1e-3 \
     --weight_decay 0. \
     --warmup_ratio 0.06 \

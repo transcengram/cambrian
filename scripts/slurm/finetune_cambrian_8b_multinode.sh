@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH -J cambrian_debug  # Job name
+#SBATCH -J cambrian  # Job name
 #SBATCH -o sbatch_logs.out                  # Name of stdout output log file (%j expands to jobID)
 #SBATCH -e sbatch_logs.out                  # Name of stderr output log file (%j expands to jobID)
-#SBATCH --nodes=2                                 # Total number of nodes requested
+#SBATCH --nodes=4                                 # Total number of nodes requested
 #SBATCH --ntasks-per-node=8                       # Total number of task requested
 #SBATCH --cpus-per-task=8                        # Total number of cores requested
 #SBATCH --mem=512G
-#SBATCH -t 720:00:00                          # Time limit (hh:mm:ss)
+#SBATCH -t 72:00:00                          # Time limit (hh:mm:ss)
 #SBATCH --gpus-per-node=8                       # Specify a list of generic consumable resources (per node)
 ########
 
@@ -16,12 +16,23 @@ env > $original_vars
 # All env variables used in the training should be set below
 # ******************************************************************************************
 # Used for multi-node setting
+export SLURM_GPUS_PER_NODE=${SLURM_GPUS_PER_NODE:-8}
+export SLURM_JOB_NUM_NODES=${SLURM_JOB_NUM_NODES:-2}
+export SLURM_NNODES=${SLURM_NNODES:-8}
+export SLURM_JOBID=${SLURM_JOBID:-1000}
+
 export PATH=/public/home/seg_test/zgr/bin/pdsh/bin:$PATH
 mkdir -p slurm_tmp
-export HOSTFILE="./slurm_tmp/hostfile${SLURM_JOB_ID}"
-scontrol show hostnames $SLURM_JOB_NODELIS | while read NODE; do
-    echo "$NODE slots=$SLURM_GPUS_PER_NODE" >> $HOSTFILE
-done
+if [ -z "$SLURM_JOB_NODELIST" ]; then
+    export HOSTFILE="hostfile_temp"
+    export MASTER_ADDR=(hostname)
+else
+    export HOSTFILE="./slurm_tmp/hostfile${SLURM_JOB_ID}"
+    scontrol show hostnames $SLURM_JOB_NODELIST | while read NODE; do
+        echo "$NODE slots=$SLURM_GPUS_PER_NODE" >> $HOSTFILE
+    done
+    export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
+fi
 
 export RANK=$SLURM_PROCID
 export LOCAL_RANK=$SLURM_LOCALID
@@ -29,9 +40,9 @@ export LOCAL_RANK=$SLURM_LOCALID
 export MASTER_PORT=$(expr 10000 + $(echo -n $SLURM_JOBID | tail -c 4))
 export WORLD_SIZE=$(($SLURM_NNODES * $SLURM_JOB_NUM_NODES))
 
-export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
 # ******************************************************************************************
 # Used for Training
+export HF_ENDPOINT="https://hf-mirror.com"
 export IF_TRAIN=True
 export CKPT_NAME="cambrian-8b-finetune"
 export CKPT_DIR="$(pwd)/checkpoints/$CKPT_NAME"
@@ -64,7 +75,7 @@ deepspeed \
     --version v1 \
     --data_path "$_ROOT_DIR_/zgr/data/Cambrian-10M/jsons/Cambrian7M_withsystemprompt.jsonl" \
     --image_folder "$_ROOT_DIR_/zgr/data/Cambrian-10M/" \
-    --pretrain_mm_mlp_adapter "$_ROOT_DIR_/lby/cambrian/checkpoints/cambrian-8b-pretrain/mm_projector.bin" \
+    --pretrain_mm_mlp_adapter "$_ROOT_DIR_/cambrian/checkpoints/cambrian-8b-pretrain/mm_projector.bin" \
     --vision_tower_aux_list '["siglip/CLIP-ViT-SO400M-14-384", "openai/clip-vit-large-patch14-336", "facebook/dinov2-giant-res378", "clip-convnext-XXL-multi-stage"]' \
     --vision_tower_aux_token_len_list '[576, 576, 576, 9216]' \
     --image_token_len 576 \
@@ -89,11 +100,11 @@ deepspeed \
     --num_train_epochs 1 \
     --per_device_train_batch_size 8 \
     --per_device_eval_batch_size 4 \
-    --gradient_accumulation_steps 1 \
+    --gradient_accumulation_steps 2 \
     --evaluation_strategy "no" \
     --save_strategy "steps" \
-    --save_steps 2000 \
-    --save_total_limit 1 \
+    --save_steps 500 \
+    --save_total_limit 5 \
     --learning_rate 4e-5 \
     --weight_decay 0. \
     --warmup_ratio 0.03 \
@@ -105,7 +116,7 @@ deepspeed \
     --dataloader_num_workers 4 \
     --lazy_preprocess True \
     --run_name $CKPT_NAME \
-    --report_to wandb
+    --report_to swanlab
 
 #CKPT_PATH=checkpoints/$CKPT_NAME
 CKPT_PATH=$CKPT_DIR
