@@ -18,7 +18,6 @@ env > $original_vars
 # Used for multi-node setting
 export SLURM_GPUS_PER_NODE=${SLURM_GPUS_PER_NODE:-8}
 export SLURM_JOB_NUM_NODES=${SLURM_JOB_NUM_NODES:-2}
-export SLURM_NNODES=${SLURM_NNODES:-8}
 export SLURM_JOBID=${SLURM_JOBID:-1000}
 
 export PATH=/public/home/seg_test/zgr/bin/pdsh/bin:$PATH
@@ -38,7 +37,7 @@ export RANK=$SLURM_PROCID
 export LOCAL_RANK=$SLURM_LOCALID
 
 export MASTER_PORT=$(expr 10000 + $(echo -n $SLURM_JOBID | tail -c 4))
-export WORLD_SIZE=$(($SLURM_NNODES * $SLURM_JOB_NUM_NODES))
+export WORLD_SIZE=$(($SLURM_GPUS_PER_NODE * $SLURM_JOB_NUM_NODES))
 
 # ******************************************************************************************
 # Used for Training

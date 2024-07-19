@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH -J cambrian  # Job name
-#SBATCH -o sbatch_logs.out                  # Name of stdout output log file (%j expands to jobID)
-#SBATCH -e sbatch_logs.out                  # Name of stderr output log file (%j expands to jobID)
-#SBATCH --nodes=2                                 # Total number of nodes requested
+#SBATCH -J cambrian_p                       # Job name
+#SBATCH -o cambrian_pretrain.out                  # Name of stdout output log file (%j expands to jobID)
+#SBATCH -e cambrian_pretrain.out                  # Name of stderr output log file (%j expands to jobID)
+#SBATCH --nodes=4                                 # Total number of nodes requested
 #SBATCH --ntasks-per-node=8                       # Total number of task requested
 #SBATCH --cpus-per-task=8                        # Total number of cores requested
 #SBATCH --mem=512G
-#SBATCH -t 720:00:00                          # Time limit (hh:mm:ss)
+#SBATCH -t 72:00:00                          # Time limit (hh:mm:ss)
 #SBATCH --gpus-per-node=8                       # Specify a list of generic consumable resources (per node)
 ########
 
@@ -18,7 +18,6 @@ env > $original_vars
 # Used for multi-node setting
 export SLURM_GPUS_PER_NODE=${SLURM_GPUS_PER_NODE:-8}
 export SLURM_JOB_NUM_NODES=${SLURM_JOB_NUM_NODES:-2}
-export SLURM_NNODES=${SLURM_NNODES:-8}
 export SLURM_JOBID=${SLURM_JOBID:-1000}
 
 export PATH=/public/home/seg_test/zgr/bin/pdsh/bin:$PATH
@@ -38,7 +37,7 @@ export RANK=$SLURM_PROCID
 export LOCAL_RANK=$SLURM_LOCALID
 
 export MASTER_PORT=$(expr 10000 + $(echo -n $SLURM_JOBID | tail -c 4))
-export WORLD_SIZE=$(($SLURM_NNODES * $SLURM_JOB_NUM_NODES))
+export WORLD_SIZE=$(($SLURM_GPUS_PER_NODE * $SLURM_JOB_NUM_NODES))
 
 # ******************************************************************************************
 # Used for Training
@@ -71,8 +70,8 @@ deepspeed \
     --no_ssh_check \
     cambrian/train/train_gpu.py \
     --deepspeed ./scripts/zero2.json \
-    --model_name_or_path lmsys/vicuna-7b-v1.5 \
-    --version plain \
+    --model_name_or_path $_ROOT_DIR_/zgr/ckpts/Meta-Llama-3-8B-Instruct \
+    --version llama_v3 \
     --data_path "$_ROOT_DIR_/zgr/data/Cambrian-Alignment/jsons/alignment_2.5m.jsonl" \
     --image_folder "$_ROOT_DIR_/zgr/data/Cambrian-Alignment/" \
     --vision_tower_aux_list '["siglip/CLIP-ViT-SO400M-14-384", "openai/clip-vit-large-patch14-336", "facebook/dinov2-giant-res378", "clip-convnext-XXL-multi-stage"]' \
@@ -97,7 +96,7 @@ deepspeed \
     --bf16 True \
     --output_dir $CKPT_DIR \
     --num_train_epochs 1 \
-    --per_device_train_batch_size 16 \
+    --per_device_train_batch_size 8 \
     --per_device_eval_batch_size 4 \
     --gradient_accumulation_steps 2 \
     --evaluation_strategy "no" \
