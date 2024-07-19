@@ -382,14 +382,14 @@ def preprocess_llama_3(
             assert role == conv.roles[j % 2], f"{i}"
             conv.append_message(role, sentence["value"])
         prompt = conv.get_prompt()
-        if prompt.endswith("<|start_header_id|>assistant<|end_header_id|>"):
-            prompt = prompt[:-len("<|start_header_id|>assistant<|end_header_id|>")]
+        if prompt.endswith("<|start_header_id|>assistant<|end_header_id|>\n\n"):
+            prompt = prompt[:-len("<|start_header_id|>assistant<|end_header_id|>\n\n")]
         conversations.append(prompt)
 
     # Tokenize conversations
-
+    # Don't need to add special tokens, which is already added in the chat template.
     if has_image:
-        input_ids = torch.stack([tokenizer_image_token_llama3(prompt, tokenizer, return_tensors='pt') for prompt in conversations], dim=0)
+        input_ids = torch.stack([tokenizer_image_token_llama3(prompt, tokenizer, return_tensors='pt',add_special_tokens=False) for prompt in conversations], dim=0)
     else:
         input_ids = tokenizer(
             conversations,
@@ -397,6 +397,7 @@ def preprocess_llama_3(
             padding="longest",
             max_length=tokenizer.model_max_length,
             truncation=True,
+            add_special_tokens=False
         ).input_ids
 
     targets = input_ids.clone()
@@ -418,24 +419,24 @@ def preprocess_llama_3(
 
             rou += sep
 
-            # System Prompt
+            # System Prompt. add bos before the system prompt
             if i == 0:
-                round_len = len(tokenizer(rou).input_ids)
+                round_len = len(tokenizer(rou,add_special_tokens=False).input_ids)
                 # Don't predict system prompt
                 target[cur_len : cur_len + round_len] = IGNORE_INDEX
                 cur_len += round_len
             # User Prompt
             elif i % 2 == 1:
                 if i==1 and has_image:
-                    round_len = len(tokenizer_image_token_llama3(rou, tokenizer))
+                    round_len = len(tokenizer_image_token_llama3(rou, tokenizer,add_special_tokens=False)) #not include bos
                 else:
-                    round_len = len(tokenizer(rou).input_ids)
+                    round_len = len(tokenizer(rou,add_special_tokens=False).input_ids)
                 # Don't predict system prompt
                 target[cur_len : cur_len + round_len] = IGNORE_INDEX
                 cur_len += round_len
             # Model Reponse
             elif i % 2 == 0:
-                round_len = len(tokenizer(rou).input_ids)
+                round_len = len(tokenizer(rou,add_special_tokens=False).input_ids) #not include bos
                 # Don't predict system prompt
                 target[cur_len : cur_len + 3] = IGNORE_INDEX
                 cur_len += round_len
@@ -1626,6 +1627,7 @@ def train(attn_implementation=None):
     elif model_args.version == "llama_v3":
         tokenizer.pad_token = "<|reserved_special_token_0|>"
         tokenizer.pad_token_id = 128002
+        conversation_lib.default_conversation = conversation_lib.conv_templates[model_args.version]
     else:
         tokenizer.pad_token = tokenizer.unk_token
         if model_args.version in conversation_lib.conv_templates:
