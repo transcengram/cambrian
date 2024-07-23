@@ -12,7 +12,7 @@ export CKPT_DIR="$_ROOT_DIR_/cambrian/test_checkpoints/$CKPT_NAME" &&
 deepspeed cambrian/train/train_gpu.py \
     --deepspeed ./scripts/zero2.json \
     --model_name_or_path lmsys/vicuna-7b-v1.5 \
-    --version plain \
+    --version v1 \
     --data_path "$_ROOT_DIR_/zgr/data/Cambrian-Alignment/jsons/alignment_2.5m.jsonl" \
     --image_folder "$_ROOT_DIR_/zgr/data/Cambrian-Alignment/" \
     --vision_tower_aux_list '["siglip/CLIP-ViT-SO400M-14-384", "openai/clip-vit-large-patch14-336", "facebook/dinov2-giant-res378", "clip-convnext-XXL-multi-stage"]' \
@@ -21,7 +21,7 @@ deepspeed cambrian/train/train_gpu.py \
     --num_query_group 1 \
     --query_num_list '[576]' \
     --connector_depth 3 \
-    --image_position 91 \
+    --image_position 35 \
     --vision_hidden_size 1024 \
     --connector_only False \
     --num_of_vision_sampler_layers 10 \
