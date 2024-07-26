@@ -297,3 +297,4 @@ wandb/
 *.out
 checkpoints/
 .deepspeed_env
+test.sh
