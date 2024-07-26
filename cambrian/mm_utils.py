@@ -223,7 +223,7 @@ def tokenizer_image_token(prompt, tokenizer, image_token_index=IMAGE_TOKEN_INDEX
     return input_ids
 
 
-def tokenizer_image_token_llama3(prompt, tokenizer, image_token_index=IMAGE_TOKEN_INDEX, return_tensors=None,add_special_tokens=True):
+def tokenizer_image_token_llama3(prompt, tokenizer, image_token_index=IMAGE_TOKEN_INDEX, return_tensors=None,add_special_tokens=False):
     prompt_chunks = [tokenizer(chunk,add_special_tokens=False).input_ids for chunk in prompt.split('<image>')]
 
     def insert_separator(X, sep):

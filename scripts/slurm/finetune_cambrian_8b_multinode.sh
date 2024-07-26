@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH -J cambrian  # Job name
-#SBATCH -o sbatch_logs.out                  # Name of stdout output log file (%j expands to jobID)
-#SBATCH -e sbatch_logs.out                  # Name of stderr output log file (%j expands to jobID)
+#SBATCH -J cambrian_f  # Job name
+#SBATCH -o cambrian_finetune.out                  # Name of stdout output log file (%j expands to jobID)
+#SBATCH -e cambrian_finetune.out                  # Name of stderr output log file (%j expands to jobID)
 #SBATCH --nodes=4                                 # Total number of nodes requested
 #SBATCH --ntasks-per-node=8                       # Total number of task requested
 #SBATCH --cpus-per-task=8                        # Total number of cores requested
@@ -48,7 +48,7 @@ export CKPT_DIR="$(pwd)/checkpoints/$CKPT_NAME"
 
 export DS_ENV_FILE="$(pwd)/scripts/slurm/.deepspeed_env"
 
-export _ROOT_DIR_="/public/home/seg_test/"
+export _ROOT_DIR_="/public/home/seg_test"
 export SWANLAB_API="MDG9pjBBM7cq5QGvOG90l"
 python -c "import swanlab; swanlab.login(api_key='$SWANLAB_API')"
 # ******************************************************************************************
@@ -70,11 +70,11 @@ deepspeed \
     --no_ssh_check \
     cambrian/train/train_gpu.py \
     --deepspeed ./scripts/zero2.json \
-    --model_name_or_path lmsys/vicuna-7b-v1.5 \
-    --version v1 \
+    --model_name_or_path $_ROOT_DIR_/zgr/ckpts/Meta-Llama-3-8B-Instruct \
+    --version llama_v3 \
     --data_path "$_ROOT_DIR_/zgr/data/Cambrian-10M/jsons/Cambrian7M_withsystemprompt.jsonl" \
     --image_folder "$_ROOT_DIR_/zgr/data/Cambrian-10M/" \
-    --pretrain_mm_mlp_adapter "$_ROOT_DIR_/cambrian/checkpoints/cambrian-8b-pretrain/mm_projector.bin" \
+    --pretrain_mm_mlp_adapter "$_ROOT_DIR_/zgr/cambrian_gpu/checkpoints/cambrian-8b-pretrain/mm_projector.bin" \
     --vision_tower_aux_list '["siglip/CLIP-ViT-SO400M-14-384", "openai/clip-vit-large-patch14-336", "facebook/dinov2-giant-res378", "clip-convnext-XXL-multi-stage"]' \
     --vision_tower_aux_token_len_list '[576, 576, 576, 9216]' \
     --image_token_len 576 \
