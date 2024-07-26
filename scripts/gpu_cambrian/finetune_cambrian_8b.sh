@@ -22,7 +22,7 @@ deepspeed cambrian/train/train_gpu.py \
     --num_query_group 1 \
     --query_num_list '[576]' \
     --connector_depth 3 \
-    --image_position 91 \
+    --image_position 35 \
     --vision_hidden_size 1024 \
     --connector_only False \
     --num_of_vision_sampler_layers 10 \

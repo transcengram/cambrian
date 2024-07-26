@@ -75,12 +75,23 @@ def main():
     # model_name = "cambrian-8b-finetune"
     tokenizer, model, image_processor, context_len = load_pretrained_model(args.model_path, args.model_base, args.model_name)
 
+    if args.conv_mode == "v1":
+        print(model.config.image_position)
+        model.config.image_position = 35
+        print(model.config.image_position)
+
     temperature = 0
 
     while True:
         image_path = input("image path: ")
+        if not image_path:
+            image_path = "/public/home/seg_test/lby/data/CLIP.png"
+            print("default image path: ", image_path)
         image = Image.open(image_path).convert('RGB')
         question = input("question: ")
+        if not question:
+            question = "Describe the image"
+            print("default question: ", question)
 
         input_ids, image_tensor, image_sizes, prompt = process(image, question, tokenizer, image_processor, model.config, args.conv_mode)
         input_ids = input_ids.to(device='cuda', non_blocking=True)
